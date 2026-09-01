@@ -66,6 +66,12 @@ def extract_embeddings(model, crops_dir: Path, classes: list[str]) -> pd.DataFra
 
 
 def run_features(cfg: dict) -> pd.DataFrame:
+    """Return the 50-d PCA features (cached).
+
+    NOTE: the scaler+PCA here are fit on the FULL dataset (all crops), which
+    is transductive w.r.t. any later train/test split. This is uniform across
+    all ablation arms (documented limitation); the leak-free protocol would
+    refit per split from the raw embeddings cached alongside."""
     crops_dir = ROOT / "data" / "processed" / "crops"
     classes = cfg["data"]["classes"]
     tag = "features_" + "_".join(sorted(classes))

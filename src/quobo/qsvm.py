@@ -46,6 +46,7 @@ def evaluate(model, Xtr, ytr, Xte, yte) -> dict:
         "macro_f1": float(f1_score(yte, pred, average="macro")),
         "fit_seconds": fit_s,
         "predict_seconds": pred_s,
+        "predictions": [str(p) for p in pred],  # JSON-safe
     }
 
 
@@ -62,8 +63,11 @@ def fit_scale_for_feature_map(Xtr: np.ndarray, Xte: np.ndarray) -> tuple:
     return scaler.transform(Xtr), scaler.transform(Xte)
 
 
-def run_all_classifiers(Xtr, ytr, Xte, yte, cfg: dict) -> dict:
-    """Train QSVC + classical baselines on the SAME features. Returns metrics dict."""
+def run_all_classifiers(Xtr, ytr, Xte, yte, cfg: dict, rep_offset: int = 0) -> dict:
+    """Train QSVC + classical baselines on the SAME features. Returns metrics dict.
+
+    rep_offset varies the training-subsample seed per repeat (same protocol
+    across every caller — the main run and any downstream analysis)."""
     k = Xtr.shape[1]
     results = {}
 
@@ -75,7 +79,7 @@ def run_all_classifiers(Xtr, ytr, Xte, yte, cfg: dict) -> dict:
 
     max_n = cfg["qsvm"]["max_train_samples"]
     if len(ytr) > max_n:
-        rng = np.random.default_rng(cfg["seed"] + cfg.get("_rep_offset", 0))
+        rng = np.random.default_rng(cfg["seed"] + rep_offset)
         idx = rng.choice(len(ytr), size=max_n, replace=False)
         Xtr_s, ytr_s = Xtr_q[idx], np.asarray(ytr)[idx]
         Xtr_c, ytr_c = np.asarray(Xtr)[idx], np.asarray(ytr)[idx]

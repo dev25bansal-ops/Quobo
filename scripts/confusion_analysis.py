@@ -1,8 +1,8 @@
 """Per-class confusion analysis for the headline comparison.
 
-Retrains the QUBO-8 arm across the same 5 seeds as the main experiment,
-collects held-out confusion matrices for QSVM + RBF-SVM, and reports
-per-class precision/recall plus aggregated confusion heatmaps.
+Consumes the persisted per-repeat predictions from the latest experiment run
+(experiments/<ts>/rep*_D_qubo.json) — no retraining, no duplicated split/selection
+logic (predictions are recorded by run_experiment via run_all_classifiers).
 
 Usage: .venv/Scripts/python.exe -m scripts.confusion_analysis
 """
@@ -18,63 +18,62 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix, precision_recall_fscore_support
-from sklearn.model_selection import train_test_split
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src.quobo.config import ROOT, load_config
-from src.quobo.features import run_features
-from src.quobo.qsvm import make_qsvc, fit_scale_for_feature_map
-from src.quobo.selection import select_features
-from sklearn.svm import SVC
+from src.quobo.config import ROOT
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("confusion")
 
 
+def latest_run_dir() -> Path:
+    runs = sorted((ROOT / "experiments").iterdir())
+    if not runs:
+        raise SystemExit("no experiment runs found — run src.quobo.run_experiment first")
+    return runs[-1]
+
+
 def main() -> None:
-    cfg = load_config("configs/experiment_6class.yaml")
-    df = run_features(cfg)
-    feat_cols = [c for c in df.columns if c.startswith("f")]
-    X, y = df[feat_cols].values, df["label"].values
-    classes = sorted(np.unique(y))
-    k = cfg["selection"]["k"]
-    n_rep = cfg["experiment"]["n_repeats"]
+    run_dir = latest_run_dir()
+    reps = sorted(run_dir.glob("rep*_D_qubo.json"))
+    log.info("using run %s (%d repeats)", run_dir.name, len(reps))
+
+    with open(run_dir / f"classes.json", encoding="utf-8") as f:
+        classes = json.load(f)
+    with open(run_dir / reps[0].name, encoding="utf-8") as f:
+        first = json.load(f)
+    # classes list persisted by the experiment run (see run_experiment)
+    if "classes" in first:
+        classes = first["classes"]
+    yte_by_rep = {r.stem.split("_")[0]: r for r in reps}
 
     agg = {"qsvm": np.zeros((len(classes), len(classes)), dtype=int),
            "rbf_svm": np.zeros((len(classes), len(classes)), dtype=int)}
     per_class_rows = []
 
-    for rep in range(n_rep):
-        seed = cfg["seed"] + rep
-        Xtr, Xte, ytr, yte = train_test_split(
-            X, y, test_size=cfg["qsvm"]["test_fraction"],
-            random_state=seed, stratify=y)
-        sel, _ = select_features("D_qubo", Xtr, ytr, k, seed, cfg["qubo"])
+    for rep_file in reps:
+        with open(rep_file, encoding="utf-8") as f:
+            j = json.load(f)
+        yte = np.array(j["y_test"])
+        for clf in ("qsvm", "rbf_svm"):
+            pred = np.array(j["metrics"][clf]["predictions"])
+            agg[clf] += confusion_matrix(yte, pred, labels=classes)
 
-        max_n = cfg["qsvm"]["max_train_samples"]
-        rng = np.random.default_rng(seed)
-        idx = rng.choice(len(ytr), size=min(max_n, len(ytr)), replace=False)
-
-        qsvc, _ = make_qsvc(k, cfg)
-        qsvc.class_weight = "balanced"
-        Xtr_sel_q, Xte_sel_q = fit_scale_for_feature_map(
-            Xtr[np.ix_(idx, sel)].astype(float), Xte[:, sel].astype(float)
-        )
-        qsvc.fit(Xtr_sel_q, np.asarray(ytr)[idx])
-        pred_q = qsvc.predict(Xte_sel_q)
-        agg["qsvm"] += confusion_matrix(yte, pred_q, labels=classes)
-
-        rbf = SVC(kernel="rbf", class_weight="balanced", random_state=seed)
-        rbf.fit(Xtr[np.ix_(idx, sel)], np.asarray(ytr)[idx])
-        pred_r = rbf.predict(Xte[:, sel])
-        agg["rbf_svm"] += confusion_matrix(yte, pred_r, labels=classes)
-
-        p, r, f, s = precision_recall_fscore_support(yte, pred_r, labels=classes, zero_division=0)
-        for c, pi, ri, fi, si in zip(classes, p, r, f, s):
-            per_class_rows.append({"repeat": rep, "classifier": "rbf_svm", "class": c,
+        p, r, f1, s = precision_recall_fscore_support(
+            yte, np.array(j["metrics"]["rbf_svm"]["predictions"]),
+            labels=classes, zero_division=0)
+        for c, pi, ri, fi, si in zip(classes, p, r, f1, s):
+            per_class_rows.append({"repeat": j.get("rep", rep_file.stem),
+                                   "classifier": "rbf_svm", "class": c,
                                    "precision": pi, "recall": ri, "f1": fi, "support": int(si)})
-        log.info("rep %d done (qsvm acc %.3f, rbf acc %.3f)",
-                 rep, (pred_q == yte).mean(), (pred_r == yte).mean())
+        # QSVM per-class rows too (audit: previously RBF-only)
+        p, r, f1, s = precision_recall_fscore_support(
+            yte, np.array(j["metrics"]["qsvm"]["predictions"]),
+            labels=classes, zero_division=0)
+        for c, pi, ri, fi, si in zip(classes, p, r, f1, s):
+            per_class_rows.append({"repeat": j.get("rep", rep_file.stem),
+                                   "classifier": "qsvm", "class": c,
+                                   "precision": pi, "recall": ri, "f1": fi, "support": int(si)})
 
     out = ROOT / "results" / "confusion"
     out.mkdir(parents=True, exist_ok=True)
@@ -94,7 +93,7 @@ def main() -> None:
                 ax.text(j, i, f"{cm_norm[i, j]:.2f}\n({cm[i, j]})", ha="center", va="center",
                         fontsize=8, color="white" if cm_norm[i, j] > 0.5 else "black")
         ax.set_xlabel("predicted"); ax.set_ylabel("true")
-        ax.set_title(f"{'QSVM' if clf == 'qsvm' else 'RBF-SVM'} — QUBO-8, aggregated over {n_rep} repeats")
+        ax.set_title(f"{'QSVM' if clf == 'qsvm' else 'RBF-SVM'} — QUBO-8, aggregated over {len(reps)} repeats")
         fig.colorbar(im, fraction=0.046)
         fig.tight_layout()
         fig.savefig(out / f"confusion_{clf}.png", dpi=150)
@@ -102,8 +101,6 @@ def main() -> None:
         np.savetxt(out / f"confusion_{clf}.csv", cm, delimiter=",", fmt="%d",
                    header=",".join(classes), comments="")
 
-    with open(out / "classes.json", "w", encoding="utf-8") as f:
-        json.dump(classes, f)
     print(pc_mean.to_string())
     print("saved to", out)
 

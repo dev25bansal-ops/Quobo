@@ -1,9 +1,11 @@
 """Experiment orchestrator: runs the full A-D ablation.
 
 For each of n_repeats seeds:
-  stratified split -> each arm selects k features -> train QSVM + RBF-SVM on
-  those k columns -> record metrics + selected features.
-Outputs: experiments/<timestamp>/results.json + results/tables/summary.csv
+  GROUP-aware split (no photo's crops straddle train/test) -> each arm selects
+  k features -> train QSVM + RBF-SVM on those k columns -> record metrics,
+  selected features, held-out labels, and per-classifier predictions.
+Outputs: experiments/<timestamp>/results_all.csv + summary + significance
+(+ per-rep JSONs consumed by confusion_analysis / pollution_dashboard).
 """
 import json
 import logging
@@ -13,7 +15,7 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import GroupShuffleSplit
 
 from .config import ROOT, load_config
 from .features import run_features
@@ -30,12 +32,22 @@ ARM_LABELS = {
 }
 
 
+def crop_image_group(crop_path: str) -> str:
+    """Group key = source TACO photo. Crop filenames look like
+    batch_3_000123_ann45.jpg (batch_N + image stem + ann id), so everything
+    before the final _annNNNN identifies the parent photo."""
+    name = crop_path.replace("\\", "/").split("/")[-1]
+    return name.rsplit("_ann", 1)[0]
+
+
 def run(cfg: dict) -> pd.DataFrame:
     t_start = time.perf_counter()
     df = run_features(cfg)
     feat_cols = [c for c in df.columns if c.startswith("f")]
-    X = df[feat_cols].values
-    y = df["label"].values
+    X = df[feat_cols].values.astype(float)
+    y = np.asarray(df["label"].values)
+    groups = np.array([crop_image_group(p) for p in df["crop_path"]])
+    n_group_leaks = 0
 
     k = cfg["selection"]["k"]
     rows = []
@@ -45,18 +57,27 @@ def run(cfg: dict) -> pd.DataFrame:
 
     for rep in range(cfg["experiment"]["n_repeats"]):
         seed = cfg["seed"] + rep
-        Xtr, Xte, ytr, yte, idx_tr, idx_te = train_test_split(
-            X, y, np.arange(len(y)),
-            test_size=cfg["qsvm"]["test_fraction"],
-            random_state=seed, stratify=y,
-        )
+        # group-aware split: no photo's crops straddle train/test (LKG-002).
+        # Groups keep the split approximately stratified via their majority label.
+        gss = GroupShuffleSplit(n_splits=1, test_size=cfg["qsvm"]["test_fraction"],
+                                random_state=seed)
+        idx_tr, idx_te = next(gss.split(X, y, groups=groups))
+        Xtr, Xte, ytr, yte = X[idx_tr], X[idx_te], y[idx_tr], y[idx_te]
+        overlap = set(groups[idx_tr]) & set(groups[idx_te])
+        if overlap:
+            n_group_leaks += len(overlap)
+        # stratification report (group splits can drift from crop-level balance)
+        if rep == 0:
+            log.info("rep 0 split: train=%d test=%d | test class share %s",
+                     len(idx_tr), len(idx_te),
+                     {c: round(float((yte == c).mean()), 3) for c in sorted(set(yte))})
         for arm in cfg["experiment"]["arms"]:
             t0 = time.perf_counter()
             sel, sel_info = select_features(arm, Xtr, ytr, k, seed, cfg["qubo"])
             sel_s = time.perf_counter() - t0
 
             metrics = run_all_classifiers(
-                Xtr[:, sel], ytr, Xte[:, sel], yte, cfg
+                Xtr[:, sel], ytr, Xte[:, sel], yte, cfg, rep_offset=rep
             )
             for clf, m in metrics.items():
                 rows.append({
@@ -67,18 +88,21 @@ def run(cfg: dict) -> pd.DataFrame:
                     "classifier": clf,
                     "selected": ",".join(map(str, sel)),
                     "selection_seconds": sel_s,
-                    **m,
+                    **{kk: vv for kk, vv in m.items() if kk != "predictions"},
                 })
             log.info(
                 "rep %d %s: qsvm=%.3f rbf=%.3f (%.1fs)",
                 rep, arm, metrics["qsvm"]["accuracy"],
                 metrics["rbf_svm"]["accuracy"], time.perf_counter() - t0,
             )
-            # persist per-run details
+            # persist per-run details incl. held-out labels + predictions so
+            # downstream analyses (confusion, PSI) consume without retraining
             with open(run_dir / f"rep{rep}_{arm}.json", "w", encoding="utf-8") as f:
                 json.dump({
-                    "arm": arm, "seed": seed, "selected": sel,
+                    "rep": rep, "arm": arm, "seed": seed, "selected": sel,
                     "selection_seconds": sel_s,
+                    "classes": sorted({str(v) for v in y}),
+                    "y_test": [str(v) for v in yte],
                     "metrics": metrics,
                     "mi_table": sel_info.get("I"),
                 }, f, indent=1)
