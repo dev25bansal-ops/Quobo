@@ -1,39 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "quobo"
 version = "1.0.0"
-description = "QUBO-based quantum feature selection + QSVM for environmental (waste) image classification — IDP3"
-requires-python = ">=3.12"
+description = "QUBO-based quantum feature selection + QSVM for waste-image classification (IDP3)"
+requires-python = ">=3.10"
 dependencies = [
-    "qiskit~=2.1",
-    "qiskit-machine-learning~=0.9.0",
-    "qiskit-aer~=0.17",
-    "dimod>=0.12.22",
-    "dwave-samplers>=1.8.0",
-    "tensorflow~=2.19",
-    "scikit-learn>=1.5",
-    "opencv-python",
-    "pillow",
-    "pandas",
-    "numpy<2.3",
-    "matplotlib",
-    "seaborn",
-    "tqdm",
-    "pyyaml",
-    "requests",
-    "scipy",
+  "qiskit~=2.1",
+  "qiskit-machine-learning~=0.9.0",
+  "dimod>=0.12.22",
+  "dwave-samplers>=1.8.0",
+  "scikit-learn>=1.5,<2",
+  "numpy<2.3",
+  "pandas",
+  "scipy",
+  "opencv-python",
+  "pillow",
+  "matplotlib",
+  "tqdm",
+  "pyyaml",
+  "requests",
 ]
 
 [project.optional-dependencies]
+full = ["tensorflow~=2.19", "qiskit-aer~=0.17"]   # heavy: backbone embeddings, optional on CI
 dev = ["pytest>=8", "ruff"]
 
-[build-system]
-requires = ["setuptools>=69"]
-build-backend = "setuptools.build_meta"
-
-[tool.setuptools]
-packages = ["quobo"]
-[tool.setuptools.package-dir]
-quobo = "src/quobo"
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

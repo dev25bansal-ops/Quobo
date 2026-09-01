@@ -29,6 +29,9 @@ ARM_LABELS = {
     "B_pca": "PCA-8",
     "C_mi": "MI-8",
     "D_qubo": "QUBO-8",
+    "E_lasso": "LASSO-8",
+    "F_mrmr": "mRMR-8",
+    "Z_full": "Full-50",
 }
 
 
@@ -73,7 +76,11 @@ def run(cfg: dict) -> pd.DataFrame:
                      {c: round(float((yte == c).mean()), 3) for c in sorted(set(yte))})
         for arm in cfg["experiment"]["arms"]:
             t0 = time.perf_counter()
-            sel, sel_info = select_features(arm, Xtr, ytr, k, seed, cfg["qubo"])
+            if arm == "Z_full":  # no-selection ceiling: all 50 features
+                sel = list(range(X.shape[1]))
+                sel_info = {}
+            else:
+                sel, sel_info = select_features(arm, Xtr, ytr, k, seed, cfg["qubo"])
             sel_s = time.perf_counter() - t0
 
             metrics = run_all_classifiers(
@@ -90,9 +97,11 @@ def run(cfg: dict) -> pd.DataFrame:
                     "selection_seconds": sel_s,
                     **{kk: vv for kk, vv in m.items() if kk != "predictions"},
                 })
+            lead = metrics.get("qsvm") or metrics.get("rbf_svm")
             log.info(
-                "rep %d %s: qsvm=%.3f rbf=%.3f (%.1fs)",
-                rep, arm, metrics["qsvm"]["accuracy"],
+                "rep %d %s: qsvm=%s rbf=%.3f (%.1fs)",
+                rep, arm,
+                f"{metrics['qsvm']['accuracy']:.3f}" if "qsvm" in metrics else "n/a",
                 metrics["rbf_svm"]["accuracy"], time.perf_counter() - t0,
             )
             # persist per-run details incl. held-out labels + predictions so

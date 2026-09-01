@@ -144,6 +144,59 @@ def select_qubo(
     return sorted(best_choice), info
 
 
+def select_lasso(X, y, k, seed=None):
+    """Arm E: L1-regularized logistic regression selection — the cheap convex
+    baseline reviewers will ask for (Huang 2021 objection). Features ranked
+    by mean |coefficient| across one-vs-rest fits; C chosen by CV."""
+    from sklearn.linear_model import LogisticRegressionCV
+    from sklearn.preprocessing import StandardScaler
+
+    Xs = StandardScaler().fit_transform(X)
+    # sklearn >=1.8: l1 selection via l1_ratios (penalty= is deprecated)
+    try:
+        clf = LogisticRegressionCV(
+            l1_ratios=[1.0], solver="saga", Cs=10, cv=3, random_state=seed,
+            n_jobs=1, max_iter=5000, scoring="accuracy",
+        ).fit(Xs, y)
+    except TypeError:  # older sklearn: penalty= API
+        clf = LogisticRegressionCV(
+            penalty="l1", solver="saga", Cs=10, cv=3, random_state=seed,
+            n_jobs=1, max_iter=5000,
+        ).fit(Xs, y)
+    scores = np.abs(clf.coef_).mean(axis=0)
+    return sorted(np.argsort(-scores)[:k].tolist())
+
+
+def select_mrmr(X, y, k, seed=None, n_bins=16):
+    """Arm F: mRMR (Peng et al. 2005) — relevance minus redundancy, greedy.
+    The classical non-convex heuristic QUBO is often compared against."""
+    Xd = _discretize(X, n_bins)
+    from sklearn.metrics import mutual_info_score
+
+    n_feat = X.shape[1]
+    I = np.array([mutual_info_score(Xd[:, j], y) for j in range(n_feat)])
+    R = np.zeros((n_feat, n_feat))
+    for a, b in combinations(range(n_feat), 2):
+        m = mutual_info_score(Xd[:, a], Xd[:, b])
+        R[a, b] = R[b, a] = m
+
+    selected = []
+    remaining = list(range(n_feat))
+    # greedy: maximize I_i - mean_{j in S} R_ij
+    first = int(np.argmax(I))
+    selected.append(first)
+    remaining.remove(first)
+    while len(selected) < k and remaining:
+        scores = [
+            I[i] - (np.mean([R[i, j] for j in selected]) if selected else 0.0)
+            for i in remaining
+        ]
+        best = remaining[int(np.argmax(scores))]
+        selected.append(best)
+        remaining.remove(best)
+    return sorted(selected)
+
+
 def select_features(arm: str, X, y, k, seed, cfg_qubo: dict) -> tuple[list[int], dict]:
     if arm == "A_random":
         return select_random(X, y, k, seed), {}
@@ -151,6 +204,10 @@ def select_features(arm: str, X, y, k, seed, cfg_qubo: dict) -> tuple[list[int],
         return select_pca_order(X, y, k, seed), {}
     if arm == "C_mi":
         return select_mi(X, y, k, seed), {}
+    if arm == "E_lasso":
+        return select_lasso(X, y, k, seed), {}
+    if arm == "F_mrmr":
+        return select_mrmr(X, y, k, seed, n_bins=cfg_qubo["mi_bins"]), {}
     if arm == "D_qubo":
         return select_qubo(
             X,

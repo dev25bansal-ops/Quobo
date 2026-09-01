@@ -1,0 +1,25 @@
+Metadata-Version: 2.4
+Name: quobo
+Version: 1.0.0
+Summary: QUBO-based quantum feature selection + QSVM for waste-image classification (IDP3)
+Requires-Python: >=3.10
+Requires-Dist: qiskit~=2.1
+Requires-Dist: qiskit-machine-learning~=0.9.0
+Requires-Dist: dimod>=0.12.22
+Requires-Dist: dwave-samplers>=1.8.0
+Requires-Dist: scikit-learn<2,>=1.5
+Requires-Dist: numpy<2.3
+Requires-Dist: pandas
+Requires-Dist: scipy
+Requires-Dist: opencv-python
+Requires-Dist: pillow
+Requires-Dist: matplotlib
+Requires-Dist: tqdm
+Requires-Dist: pyyaml
+Requires-Dist: requests
+Provides-Extra: full
+Requires-Dist: tensorflow~=2.19; extra == "full"
+Requires-Dist: qiskit-aer~=0.17; extra == "full"
+Provides-Extra: dev
+Requires-Dist: pytest>=8; extra == "dev"
+Requires-Dist: ruff; extra == "dev"

@@ -19,7 +19,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix, precision_recall_fscore_support
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # scripts/ dir: importable as scripts.*
 from src.quobo.config import ROOT
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")

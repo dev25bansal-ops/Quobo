@@ -67,36 +67,54 @@ def run_all_classifiers(Xtr, ytr, Xte, yte, cfg: dict, rep_offset: int = 0) -> d
     """Train QSVC + classical baselines on the SAME features. Returns metrics dict.
 
     rep_offset varies the training-subsample seed per repeat (same protocol
-    across every caller — the main run and any downstream analysis)."""
+    across every caller — the main run and any downstream analysis).
+    The statevector QSVM is physically limited to ~20 qubits (2^n memory);
+    for wider feature sets (e.g. the Z_full 50-feature ceiling) it is skipped
+    and only classical baselines run."""
     k = Xtr.shape[1]
     results = {}
-
-    # QSVM gets angle-scaled inputs (scaler fit on train only); classical
-    # SVMs get the raw columns
-    Xtr_q, Xte_q = fit_scale_for_feature_map(
-        np.asarray(Xtr, dtype=float), np.asarray(Xte, dtype=float)
-    )
+    run_qsvm = k <= cfg.get("qsvm", {}).get("max_qsvm_features", 20)
 
     max_n = cfg["qsvm"]["max_train_samples"]
     if len(ytr) > max_n:
         rng = np.random.default_rng(cfg["seed"] + rep_offset)
         idx = rng.choice(len(ytr), size=max_n, replace=False)
-        Xtr_s, ytr_s = Xtr_q[idx], np.asarray(ytr)[idx]
         Xtr_c, ytr_c = np.asarray(Xtr)[idx], np.asarray(ytr)[idx]
     else:
-        Xtr_s, ytr_s = Xtr_q, np.asarray(ytr)
+        idx = None
         Xtr_c, ytr_c = Xtr, np.asarray(ytr)
 
-    # QSVM
-    qsvc, _ = make_qsvc(k, cfg)
-    qsvc.class_weight = "balanced"
-    results["qsvm"] = evaluate(qsvc, Xtr_s, ytr_s, Xte_q, yte)
+    # QSVM (angle-scaled inputs; scaler fit on train only)
+    if run_qsvm:
+        Xtr_q, Xte_q = fit_scale_for_feature_map(
+            np.asarray(Xtr, dtype=float)[idx] if idx is not None else np.asarray(Xtr, dtype=float),
+            np.asarray(Xte, dtype=float),
+        )
+        ytr_s = ytr_c
+        qsvc, _ = make_qsvc(k, cfg)
+        qsvc.class_weight = "balanced"
+        results["qsvm"] = evaluate(qsvc, Xtr_q, ytr_s, Xte_q, yte)
+    else:
+        log.warning("skipping QSVM at k=%d features (> max_qsvm_features) — classical arms only", k)
 
     # classical RBF-SVM (same subsample for fairness)
     results["rbf_svm"] = evaluate(
         SVC(kernel="rbf", class_weight="balanced", random_state=cfg["seed"]),
         Xtr_c, ytr_c, Xte, yte,
     )
+    # tuned RBF-SVM: small grid over C/gamma on the SAME training subsample.
+    # Neutralizes the 'weak classical baseline' objection (Huang 2021) — the
+    # grid is seconds on 400x8 data.
+    if cfg.get("qsvm", {}).get("tune_rbf", False):
+        from sklearn.model_selection import GridSearchCV
+
+        grid = GridSearchCV(
+            SVC(kernel="rbf", class_weight="balanced"),
+            {"C": [0.1, 1, 10, 100], "gamma": ["scale", 0.01, 0.1, 1]},
+            cv=3, n_jobs=1,
+        )
+        grid.fit(Xtr_c, ytr_c)
+        results["rbf_svm_tuned"] = evaluate(grid.best_estimator_, Xtr_c, ytr_c, Xte, yte)
     # linear SVM reference
     results["linear_svm"] = evaluate(
         SVC(kernel="linear", class_weight="balanced", random_state=cfg["seed"]),

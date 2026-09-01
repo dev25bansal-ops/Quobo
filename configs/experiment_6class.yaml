@@ -34,7 +34,8 @@ qsvm:
   entanglement: linear
   max_train_samples: 400
   test_fraction: 0.25
+  tune_rbf: true
 
 experiment:
   n_repeats: 25
-  arms: [A_random, B_pca, C_mi, D_qubo]
+  arms: [A_random, B_pca, C_mi, D_qubo, E_lasso, F_mrmr, Z_full]

@@ -46,14 +46,26 @@ BAND_COLORS = {"Good": "#52b948", "Moderate": "#f5eb3d", "Unhealthy": "#f77c02",
                "Very Unhealthy": "#df2020", "Hazardous": "#7d2181"}
 
 
+import html as _html
+
+
 def zone_of(crop_path: str, mode: str = "batch") -> str:
-    name = Path(crop_path).name  # batch_3_000123_ann45.jpg
-    if mode == "batch" and name.startswith("batch_"):
+    """Zone for a crop. 'batch' mode maps TACO batch_N -> Zone A..F (demo).
+    Real deployments: place zone-labeled crops under data/geo/<Zone name>/
+    and pass mode='folder', which reads the parent directory name."""
+    p = Path(crop_path)
+    if mode == "folder":
+        parent = p.parent.name
+        if parent.startswith("Zone"):
+            return parent
+        return "Unassigned"
+    name = p.name  # batch_3_000123_ann45.jpg
+    if name.startswith("batch_"):
         parts = name.split("_")
         if len(parts) > 1 and parts[1].isdigit():
             n = int(parts[1])
             return f"Zone {chr(ord('A') + (n - 1) % 6)}"
-    return "Zone A"
+    return "Unassigned"  # unknown provenance is explicit, never silently Zone A
 
 
 def load_crops() -> pd.DataFrame:
@@ -173,14 +185,14 @@ def render_dashboard(zt: pd.DataFrame, out_html: Path, truth_mode: bool = False)
             v = r[cls]
             frac = v / r["total"] * 100 if r["total"] else 0
             bars += (
-                f'<div class="bar-row"><span class="bar-label">{cls}</span>'
+                f'<div class="bar-row"><span class="bar-label">{_html.escape(cls)}</span>'
                 f'<div class="bar-track"><div class="bar-fill" style="width:{frac:.0f}%"></div></div>'
                 f'<span class="bar-val">{v}</span></div>'
             )
         zone_cards += f'''
       <div class="card" style="border-top:6px solid {color}">
-        <div class="zone-head"><span class="zone-name">{r["zone"]}</span>
-          <span class="badge" style="background:{color}">{r["band"]} · PSI {r["psi"]}</span></div>
+        <div class="zone-head"><span class="zone-name">{_html.escape(str(r["zone"]))}</span>
+          <span class="badge" style="background:{color}">{_html.escape(str(r["band"]))} · PSI {r["psi"]}</span></div>
         <div class="big-stat">Cleanliness <b>{r["cleanliness"]}%</b></div>
         <div class="sub-stat">{r["clean"]} clean / {r["dirty"]} litter · {r["total"]} items</div>
         {bars}
@@ -190,7 +202,7 @@ def render_dashboard(zt: pd.DataFrame, out_html: Path, truth_mode: bool = False)
     cells = ""
     for _, r in zt.iterrows():
         cells += (f'<div class="map-cell" style="background:{BAND_COLORS[r["band"]]}">'
-                  f'<b>{r["zone"]}</b><span>PSI {r["psi"]}</span></div>')
+                  f'<b>{_html.escape(str(r["zone"]))}</b><span>PSI {r["psi"]}</span></div>')
 
     html = f'''<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
