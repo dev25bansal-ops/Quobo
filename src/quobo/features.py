@@ -51,7 +51,11 @@ def extract_embeddings(model, crops_dir: Path, classes: list[str]) -> pd.DataFra
             paths.append(str(p))
             labels.append(cls)
 
-    embs = np.zeros((len(paths), 1280), dtype=np.float32)
+    # probe the model's output dimension once (MobileNetV2 -> 1280; test
+    # backbones may differ) so any embedding width is supported
+    probe = np.zeros((1, 224, 224, 3), dtype=np.float32)
+    emb_dim = int(np.asarray(model.predict(probe, verbose=0)).shape[1])
+    embs = np.zeros((len(paths), emb_dim), dtype=np.float32)
     batch, bs = 0, 64
     for i in tqdm(range(0, len(paths), bs), desc="embeddings"):
         chunk = paths[i : i + bs]
@@ -60,7 +64,7 @@ def extract_embeddings(model, crops_dir: Path, classes: list[str]) -> pd.DataFra
         )
         imgs = tf.keras.applications.mobilenet_v2.preprocess_input(imgs)
         embs[i : i + bs] = model.predict(imgs, verbose=0)
-    return pd.DataFrame(embs, columns=[f"e{i}" for i in range(1280)]).assign(
+    return pd.DataFrame(embs, columns=[f"e{i}" for i in range(emb_dim)]).assign(
         label=labels, crop_path=paths
     )
 
@@ -110,6 +114,7 @@ def run_features(cfg: dict) -> pd.DataFrame:
     feat_df = pd.DataFrame(Xp, columns=[f"f{i}" for i in range(n_comp)])
     feat_df["label"] = df["label"].values
     feat_df["crop_path"] = df["crop_path"].values
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
     feat_df.to_csv(out_csv, index=False)
 
     meta = {
