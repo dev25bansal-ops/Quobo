@@ -4,7 +4,12 @@
 **Audit method:** 20-agent workflow (6 audit lenses + strategy analyst + 13 adversarial verifiers); every Critical/High finding below was independently re-verified against the code and runtime artifacts. 57 findings + 16 strategic opportunities, all traceable to `research/audit/*.json`.
 **Codebase audited:** `src/quobo/` (7 modules, ~700 LOC) + `scripts/` (3 entry points) + `tests/` (1 smoke test) + configs, README, results from the 20260826_133947 full-data run (1,836 crops, 6 classes, 5 repeats).
 
-**Headline experimental numbers (verified against `results/tables/summary_20260826_133947.csv`):**
+**Headline experimental numbers — UPDATE (2026-09-02, post-remediation, tag `v1.0-results`):**
+All P0/P1 fixes applied and the definitive 7-arm, 25-repeat, group-aware rerun completed.
+RBF-SVM accuracy (mean±std): Full-50 48.4±1.9 · mRMR-8 42.7±2.4 · QUBO-8 41.1±2.7 · LASSO-8 41.7±2.9 · PCA-8 40.1±2.6 · MI-8 39.6±3.0 · Random-8 32.6±3.0
+QUBO-8 beats Random (p<0.001), PCA (p=0.013), MI (p<0.001) after Holm correction; the mRMR-8 edge over QUBO-8 (42.7 vs 41.1) is NOT significant (p=0.092); LASSO-8 ties QUBO-8. Tuned-RBF does not change the ranking. The scaler-leak fix *raised* QSVM accuracy (34.1% → ~37–40% across arms).
+
+**Original audited numbers (pre-fix, 5 repeats — superseded, kept for provenance):**
 RBF-SVM accuracy: QUBO-8 41.35±2.14 | PCA-8 40.39±1.51 | MI-8 38.87±3.99 | Random-8 31.98±3.85
 QSVM accuracy: PCA-8 36.08 | MI-8 34.60 | QUBO-8 34.12 | Random-8 24.10
 
