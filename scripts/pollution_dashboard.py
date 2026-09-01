@@ -20,15 +20,19 @@ Usage: .venv/Scripts/python.exe -m scripts.pollution_dashboard
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.quobo.config import ROOT
+
+log = logging.getLogger("dashboard")
 
 CLEAN_CLASSES = {"bottle", "can", "carton", "cup", "lid"}
 DIRTY_CLASSES = {"cigarette"}
@@ -53,6 +57,7 @@ def zone_of(crop_path: str, mode: str = "batch") -> str:
 
 
 def load_crops() -> pd.DataFrame:
+    """Ground-truth mode (legacy/demo): one row per crop from the class folders."""
     crops_dir = ROOT / "data" / "processed" / "crops"
     rows = []
     for cls_dir in sorted(crops_dir.iterdir()):
@@ -61,6 +66,59 @@ def load_crops() -> pd.DataFrame:
         for p in cls_dir.glob("*.jpg"):
             rows.append({"crop_path": str(p), "class": cls_dir.name, "file": p.name})
     return pd.DataFrame(rows)
+
+
+def load_predictions(clf: str = "rbf_svm", arm: str = "D_qubo") -> pd.DataFrame:
+    """Prediction mode (S1): consume the CLASSIFIER'S output from the latest
+    experiment run — the CV->PSI loop this project claims. Reads per-rep
+    persisted y_test/predictions, aggregates to a majority vote per crop
+    across repeats, and maps each crop to its zone.
+
+    Falls back to load_crops() when no experiment run exists."""
+    import glob as _glob
+    import json as _json
+
+    run_dirs = sorted((ROOT / "experiments").iterdir())
+    if not run_dirs:
+        log.warning("no experiment runs — falling back to ground-truth crops")
+        return load_crops()
+    run_dir = run_dirs[-1]
+    reps = sorted(run_dir.glob(f"rep*_{arm}.json"))
+    if not reps:
+        log.warning("run %s has no %s reps — falling back to ground-truth crops",
+                    run_dir.name, arm)
+        return load_crops()
+
+    from collections import defaultdict as _dd
+    votes = _dd(Counter)  # crop_key -> class -> vote count
+    for rep_file in reps:
+        with open(rep_file, encoding="utf-8") as f:
+            j = _json.load(f)
+        yte = j["y_test"]
+        pred = j["metrics"][clf]["predictions"]
+        # rep JSONs don't carry test crop paths — recover them by replaying
+        # the same group split the experiment used (deterministic given seed)
+        from src.quobo.features import run_features
+        from src.quobo.config import load_config
+        from src.quobo.run_experiment import crop_image_group
+        cfg = load_config("configs/experiment_6class.yaml")
+        df = run_features(cfg)
+        groups = np.asarray([crop_image_group(p) for p in df["crop_path"]])
+        from sklearn.model_selection import GroupShuffleSplit
+        gss = GroupShuffleSplit(n_splits=1,
+                                test_size=cfg["qsvm"]["test_fraction"],
+                                random_state=j["seed"])
+        _, idx_te = next(gss.split(df[[c for c in df.columns if c.startswith("f")]].values,
+                                   df["label"].values, groups=groups))
+        for i, p in zip(idx_te, pred):
+            votes[df["crop_path"].values[i]][p] += 1
+
+    rows = [{"crop_path": cp, "class": c.most_common(1)[0][0], "file": Path(cp).name}
+            for cp, c in votes.items()]
+    out = pd.DataFrame(rows)
+    log.info("prediction mode: %d crops voted from %d %s/%s reps (%.0f%% coverage)",
+             len(out), len(reps), arm, clf, 100 * len(out) / len(df))
+    return out
 
 
 def compute_zone_table(df: pd.DataFrame) -> pd.DataFrame:
@@ -98,12 +156,14 @@ def compute_zone_table(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def render_dashboard(zt: pd.DataFrame, out_html: Path) -> None:
+def render_dashboard(zt: pd.DataFrame, out_html: Path, truth_mode: bool = False) -> None:
     total_all = zt["total"].sum()
     clean_all = zt["clean"].sum()
     city_clean = clean_all / total_all * 100
     city_psi = zt["psi"].max()
     city_band = zt.loc[zt["psi"].idxmax(), "band"]
+    source_label = ("ground-truth TACO labels (demo)" if truth_mode
+                    else "RBF-SVM predictions on QUBO-8 features, majority vote over 25 repeats")
 
     zone_cards = ""
     for _, r in zt.iterrows():
@@ -163,7 +223,7 @@ def render_dashboard(zt: pd.DataFrame, out_html: Path) -> None:
 </style></head><body>
 <header>
   <h1>Quobo Pollution Dashboard — Gwalior Zones (demo)</h1>
-  <p>Classifier output: QUBO-8 features → QSVM / RBF-SVM · TACO crops · {datetime.now():%d %b %Y %H:%M}</p>
+  <p>Classifier output: {source_label} · TACO crops · {datetime.now():%d %b %Y %H:%M}</p>
 </header>
 <div class="kpis">
   <div class="kpi"><div class="v">{city_clean:.1f}%</div><div class="l">City cleanliness score</div></div>
@@ -185,12 +245,17 @@ deployment, place zone-labeled crops under data/geo/&lt;Zone&gt;/ and rerun; the
 
 
 def main() -> None:
-    df = load_crops()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+    # default: consume classifier predictions (the CV->PSI loop).
+    # --truth renders the ground-truth (demo/legacy) view instead.
+    truth_mode = "--truth" in sys.argv
+    df = load_crops() if truth_mode else load_predictions()
     zt = compute_zone_table(df)
     out_dir = ROOT / "results" / "dashboard"
     out_dir.mkdir(parents=True, exist_ok=True)
-    zt.to_csv(out_dir / "zone_table.csv", index=False)
-    render_dashboard(zt, out_dir / "dashboard.html")
+    suffix = "_truth" if truth_mode else ""
+    zt.to_csv(out_dir / f"zone_table{suffix}.csv", index=False)
+    render_dashboard(zt, out_dir / "dashboard.html", truth_mode=truth_mode)
     print(zt.to_string(index=False))
     print("saved:", out_dir / "dashboard.html")
 

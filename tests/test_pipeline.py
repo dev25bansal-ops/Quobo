@@ -148,3 +148,17 @@ def test_holm_monotone_and_bounded():
     assert len(out) == 1
     assert 0.0 <= out[0]["wilcoxon_p_holm"] <= 1.0
     assert isinstance(out[0]["significant_0.05"], bool)
+
+
+# ---------- S1: prediction-mode dashboard consumes votes ----------
+
+def test_zone_table_from_predictions_matches_shape(tmp_path, monkeypatch):
+    """compute_zone_table works identically on a predictions-style frame."""
+    df = pd.DataFrame([
+        {"crop_path": "x/batch_2_001_ann1.jpg", "class": "cigarette", "file": "batch_2_001_ann1.jpg"},
+        {"crop_path": "x/batch_2_002_ann1.jpg", "class": "bottle", "file": "batch_2_002_ann1.jpg"},
+    ])
+    zt = compute_zone_table(df)
+    assert set(zt.columns) >= {"zone", "total", "clean", "dirty", "cleanliness", "psi", "band"}
+    assert zt["zone"].iloc[0] == "Zone B"
+    assert zt["dirty"].iloc[0] == 1
