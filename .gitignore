@@ -1,0 +1,33 @@
+# environments & caches
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# data (downloaded / derived — regenerable, large)
+data/
+taco_annotations_official.json
+taco_annotations_unofficial.json
+
+# experiment outputs & logs
+experiments/
+results/
+*.log
+confusion_log.txt
+data_prep_log.txt
+experiment_log.txt
+experiment6_log.txt
+experiment6_full_log.txt
+features_log.txt
+
+# scratch / research workflow internals
+.research_tmp/
+.tmp_research/
+*.jsonl
+research/_raw/
+research/audit/*.json
+
+# notebook checkpoints & misc
+.ipynb_checkpoints/
+WhatsApp*.jpeg

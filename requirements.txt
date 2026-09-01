@@ -1,0 +1,22 @@
+# Core quantum stack (pinned per research findings — see research/RESEARCH_REPORT.md)
+qiskit~=2.1
+qiskit-machine-learning~=0.9.0
+qiskit-aer~=0.17
+dimod>=0.12.22
+dwave-samplers>=1.8.0
+
+# Vision + classical ML
+tensorflow~=2.19
+scikit-learn>=1.5
+opencv-python
+pillow
+
+# Data + utils
+pandas
+numpy<2.3
+matplotlib
+seaborn
+tqdm
+pyyaml
+requests
+jupyterlab

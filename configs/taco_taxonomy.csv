@@ -1,0 +1,61 @@
+leaf,coarse
+Clear plastic bottle,bottle
+Other plastic bottle,bottle
+Glass bottle,bottle
+Drink can,can
+Food Can,can
+Pop tab,can
+Cigarette,cigarette
+Corrugated carton,carton
+Drink carton,carton
+Egg carton,carton
+Meal carton,carton
+Other carton,carton
+Pizza box,carton
+Toilet tube,carton
+Disposable plastic cup,cup
+Foam cup,cup
+Glass cup,cup
+Other plastic cup,cup
+Paper cup,cup
+Plastic bottle cap,lid
+Metal bottle cap,lid
+Metal lid,lid
+Plastic lid,lid
+Aerosol,other
+Aluminium blister pack,other
+Aluminium foil,other
+Battery,other
+Broken glass,other
+Carded blister pack,other
+Crisp packet,other
+Disposable food container,other
+Foam food container,other
+Food waste,other
+Garbage bag,other
+Glass jar,other
+Magazine paper,other
+Normal paper,other
+Other plastic,other
+Other plastic container,other
+Other plastic wrapper,other
+Paper bag,other
+Paper straw,other
+Plastic film,other
+Plastic glooves,other
+Plastic straw,other
+Plastic utensils,other
+Plastified paper bag,other
+Polypropylene bag,other
+Rope & strings,other
+Scrap metal,other
+Shoe,other
+Single-use carrier bag,other
+Six pack rings,other
+Spread tub,other
+Squeezable tube,other
+Styrofoam piece,other
+Tissues,other
+Tupperware,other
+Unlabeled litter,other
+Wrapping paper,other

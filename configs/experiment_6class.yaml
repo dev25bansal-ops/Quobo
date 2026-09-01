@@ -1,0 +1,41 @@
+# Headline config: 6 concrete classes, 'other' grab-bag excluded.
+# Rationale: 'other' is 52% of crops and mixes 50 unrelated categories, so it
+# drowns both the metrics and the MI/QUBO objectives. The 6 kept classes are
+# coherent object types with balanced-enough counts (123-340 crops).
+seed: 42
+
+data:
+  classes:
+    - bottle
+    - can
+    - cigarette
+    - carton
+    - cup
+    - lid
+  min_images_per_class: 40
+  img_size: 224
+
+features:
+  backbone: MobileNetV2
+  pca_components: 50
+  standardize: true
+
+selection:
+  k: 8
+
+qubo:
+  mi_bins: 16
+  sa_sweeps: 20000
+  sa_repeats: 10
+
+qsvm:
+  feature_map: ZZFeatureMap
+  reps: 1
+  entanglement: linear
+  max_train_samples: 400
+  test_fraction: 0.25
+
+experiment:
+  n_repeats: 5
+  arms: [A_random, B_pca, C_mi, D_qubo]
+  baselines: [rbf_svm]
