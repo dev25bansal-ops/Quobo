@@ -101,7 +101,7 @@ def select_qubo(
         qubo = {(i, j): float(Qm[i, j]) for i in range(n) for j in range(n)}
         rng = np.random.default_rng(seed + int(alpha * 1000))
         sampleset = sampler.sample_qubo(
-            qubo, num_reads=max(50, repeats), num_sweeps=sweeps, seed=int(rng.integers(2**31))
+            qubo, num_reads=repeats, num_sweeps=sweeps, seed=int(rng.integers(2**31))
         )
         best = sampleset.first.sample
         chosen = [i for i in range(n) if best[i] == 1]
@@ -114,17 +114,13 @@ def select_qubo(
     for _ in range(12):
         mid = (lo + hi) / 2
         choice, energy = solve(mid)
+        best_choice, best_energy = choice, energy
+        if len(choice) == k:
+            break
         if len(choice) < k:
             lo = mid
-        elif len(choice) > k:
-            hi = mid
         else:
-            best_choice, best_energy = choice, energy
-            break
-        best_choice, best_energy = choice, energy
-    else:
-        # after loop, pick the side whose count is closest to k
-        pass
+            hi = mid
 
     # final polish: if not exactly k, nudge by flipping features at the margin
     if len(best_choice) != k:
@@ -140,7 +136,9 @@ def select_qubo(
     info = {
         "I": I.tolist(),
         "R": R.tolist(),
-        "n_sa_calls": 13,
+        "n_features_candidate": n,
+        "k_target": k,
+        "k_selected": len(best_choice),
         "sweeps": sweeps,
     }
     return sorted(best_choice), info

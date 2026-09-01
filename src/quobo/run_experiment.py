@@ -95,8 +95,67 @@ def run(cfg: dict) -> pd.DataFrame:
     with open(run_dir / "config_used.json", "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2, default=str)
 
+    # paired significance tests: every arm vs every arm, per classifier,
+    # on per-repeat accuracy. Wilcoxon signed-rank (exact via normal approx
+    # at n>=25) + paired t, Holm-corrected across the family of comparisons.
+    sig_rows = paired_significance(results)
+    if sig_rows:
+        pd.DataFrame(sig_rows).to_csv(run_dir / "significance.csv", index=False)
+        pd.DataFrame(sig_rows).to_csv(
+            ROOT / "results" / "tables" / f"significance_{stamp}.csv", index=False
+        )
+        log.info("significance: %d comparisons written", len(sig_rows))
+
     log.info("total wall time: %.1f min", (time.perf_counter() - t_start) / 60)
     return results
+
+
+def paired_significance(results: pd.DataFrame) -> list[dict]:
+    """Holm-corrected Wilcoxon signed-rank + paired t tests on per-repeat accuracy."""
+    from scipy.stats import ttest_rel, wilcoxon
+
+    def holm(pvals: list[float]) -> list[float]:
+        """Holm-Bonferroni step-down adjusted p-values."""
+        m = len(pvals)
+        order = sorted(range(m), key=lambda i: pvals[i])
+        adj, running = [0.0] * m, 0.0
+        for rank, i in enumerate(order):
+            running = max(running, (m - rank) * pvals[i])
+            adj[i] = min(1.0, running)
+        return adj
+
+    arms = sorted(results["arm"].unique())
+    comparisons = []
+    for clf in sorted(results["classifier"].unique()):
+        sub = results[results["classifier"] == clf]
+        wide = sub.pivot_table(index="repeat", columns="arm", values="accuracy")
+        for a, b in [(x, y) for i, x in enumerate(arms) for y in arms[i + 1 :]]:
+            if a not in wide or b not in wide:
+                continue
+            diff = (wide[a] - wide[b]).dropna()
+            comparisons.append({"clf": clf, "arm_a": a, "arm_b": b, "diff": diff})
+
+    if not comparisons:
+        return []
+
+    raw_p = [
+        float(wilcoxon(c["diff"]).pvalue) if c["diff"].abs().sum() > 0 else 1.0
+        for c in comparisons
+    ]
+    p_corr = holm(raw_p)
+    out = []
+    for c, p in zip(comparisons, p_corr):
+        d = c["diff"]
+        _, tp = ttest_rel(d, np.zeros_like(d))
+        out.append({
+            "classifier": c["clf"],
+            "arm_a": c["arm_a"], "arm_b": c["arm_b"],
+            "mean_diff": round(float(d.mean()), 4),
+            "wilcoxon_p_holm": round(float(p), 4),
+            "paired_t_p_holm": round(float(tp), 4),
+            "significant_0.05": bool(p < 0.05),
+        })
+    return out
 
 
 if __name__ == "__main__":

@@ -49,14 +49,17 @@ def evaluate(model, Xtr, ytr, Xte, yte) -> dict:
     }
 
 
-def scale_for_feature_map(X: np.ndarray) -> np.ndarray:
-    """Map each feature column to [0.05, 1.52] — inside the ZZFeatureMap's
-    2*pi periodicity with margin, so distinct values stay distinguishable.
-    (Raw PCA scores are unbounded; unbounded angles alias and the kernel collapses.)
+def fit_scale_for_feature_map(Xtr: np.ndarray, Xte: np.ndarray) -> tuple:
+    """Fit the angle scaler on TRAIN only, transform both sets identically.
+
+    Returns (Xtr_scaled, Xte_scaled). Range [0.05, 1.52] stays inside the
+    ZZFeatureMap's 2*pi periodicity with margin (raw PCA scores are unbounded;
+    unbounded angles alias and the kernel collapses).
     """
     from sklearn.preprocessing import MinMaxScaler
 
-    return MinMaxScaler(feature_range=(0.05, 1.52)).fit_transform(X)
+    scaler = MinMaxScaler(feature_range=(0.05, 1.52)).fit(Xtr)
+    return scaler.transform(Xtr), scaler.transform(Xte)
 
 
 def run_all_classifiers(Xtr, ytr, Xte, yte, cfg: dict) -> dict:
@@ -64,13 +67,15 @@ def run_all_classifiers(Xtr, ytr, Xte, yte, cfg: dict) -> dict:
     k = Xtr.shape[1]
     results = {}
 
-    # QSVM gets angle-scaled inputs; classical SVMs get the raw columns
-    Xtr_q = scale_for_feature_map(np.asarray(Xtr, dtype=float))
-    Xte_q = scale_for_feature_map(np.asarray(Xte, dtype=float))
+    # QSVM gets angle-scaled inputs (scaler fit on train only); classical
+    # SVMs get the raw columns
+    Xtr_q, Xte_q = fit_scale_for_feature_map(
+        np.asarray(Xtr, dtype=float), np.asarray(Xte, dtype=float)
+    )
 
     max_n = cfg["qsvm"]["max_train_samples"]
     if len(ytr) > max_n:
-        rng = np.random.default_rng(cfg["seed"])
+        rng = np.random.default_rng(cfg["seed"] + cfg.get("_rep_offset", 0))
         idx = rng.choice(len(ytr), size=max_n, replace=False)
         Xtr_s, ytr_s = Xtr_q[idx], np.asarray(ytr)[idx]
         Xtr_c, ytr_c = np.asarray(Xtr)[idx], np.asarray(ytr)[idx]

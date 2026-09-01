@@ -4,6 +4,7 @@ Each crop is resized to 224x224, passed through MobileNetV2 (ImageNet weights,
 global-average-pooled -> 1280-d), then PCA compresses to N candidate features.
 Output: data/features/features.csv with columns f0..f{N-1}, label, crop_path.
 """
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -18,6 +19,19 @@ from tqdm import tqdm
 from .config import ROOT
 
 log = logging.getLogger(__name__)
+
+
+def crops_fingerprint(crops_dir: Path, classes: list[str]) -> dict:
+    """Identity of the crop set a features file was computed from: per-class
+    counts plus a hash over the sorted file list. Stored in features_meta.json
+    and validated before any cached CSV is reused."""
+    per_class, names = {}, []
+    for cls in classes:
+        files = sorted(p.name for p in (crops_dir / cls).glob("*.jpg")) if (crops_dir / cls).is_dir() else []
+        per_class[cls] = len(files)
+        names.extend(f"{cls}/{n}" for n in files)
+    digest = hashlib.sha256("\n".join(names).encode()).hexdigest()[:16]
+    return {"per_class": per_class, "n_crops": len(names), "files_hash": digest}
 
 
 def load_model() -> tf.keras.Model:
@@ -54,12 +68,25 @@ def extract_embeddings(model, crops_dir: Path, classes: list[str]) -> pd.DataFra
 def run_features(cfg: dict) -> pd.DataFrame:
     crops_dir = ROOT / "data" / "processed" / "crops"
     classes = cfg["data"]["classes"]
-    tag = "features" if len(classes) == 7 else f"features_{len(classes)}class"
+    tag = "features_" + "_".join(sorted(classes))
     out_csv = ROOT / "data" / "features" / f"{tag}.csv"
+    meta_path = ROOT / "data" / "features" / f"{tag}_meta.json"
+    fp = crops_fingerprint(crops_dir, classes)
 
     if out_csv.exists():
-        log.info("features exist: %s", out_csv)
-        return pd.read_csv(out_csv)
+        try:
+            with open(meta_path, encoding="utf-8") as f:
+                cached_fp = json.load(f)["crops_fingerprint"]
+            if cached_fp == fp:
+                log.info("features exist and match current crops: %s", out_csv)
+                return pd.read_csv(out_csv)
+            log.warning(
+                "cached features DO NOT match crops on disk (hash %s vs %s) — recomputing",
+                cached_fp.get("files_hash"), fp["files_hash"],
+            )
+        except (FileNotFoundError, KeyError, json.JSONDecodeError):
+            log.warning("features meta missing/unreadable — recomputing to be safe")
+        out_csv.unlink(missing_ok=True)
 
     model = load_model()
     df = extract_embeddings(model, crops_dir, classes)
@@ -84,8 +111,9 @@ def run_features(cfg: dict) -> pd.DataFrame:
         "explained_variance_pct": float(100 * pca.explained_variance_ratio_.sum()),
         "n_samples": len(feat_df),
         "per_class": feat_df["label"].value_counts().to_dict(),
+        "crops_fingerprint": fp,
     }
-    with open(ROOT / "data" / "features" / "features_meta.json", "w", encoding="utf-8") as f:
+    with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
     return feat_df
 

@@ -9,7 +9,7 @@ import json
 import logging
 import shutil
 import zipfile
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, defaultdict
 from pathlib import Path
 
 import cv2
@@ -26,6 +26,9 @@ SUPERCAT_MAP_URL = (
 )
 
 
+MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024  # annotations.json is ~10 MB; anything bigger is wrong
+
+
 def download_file(url: str, dest: Path, desc: str = "") -> Path:
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.exists():
@@ -34,10 +37,16 @@ def download_file(url: str, dest: Path, desc: str = "") -> Path:
     resp = requests.get(url, stream=True, timeout=60, allow_redirects=True)
     resp.raise_for_status()
     total = int(resp.headers.get("content-length", 0))
+    written = 0
     with open(dest, "wb") as f, tqdm(
         total=total, unit="B", unit_scale=True, desc=desc or dest.name
     ) as bar:
         for chunk in resp.iter_content(chunk_size=1 << 20):
+            written += len(chunk)
+            if written > MAX_DOWNLOAD_BYTES:
+                f.close()
+                dest.unlink(missing_ok=True)
+                raise ValueError(f"download exceeded {MAX_DOWNLOAD_BYTES} bytes: {url}")
             f.write(chunk)
             bar.update(len(chunk))
     return dest
@@ -130,39 +139,51 @@ def build_crops(
     skipped = Counter()
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # group annotations by image so each image decodes once (worst image has
+    # 90 annotations — naive per-annotation decode re-reads it 90 times)
+    anns_by_img = defaultdict(list)
     for ann in coco["annotations"]:
         leaf = cat_id_to_name[ann["category_id"]]
         coarse = leaf_map.get(leaf, "Unlabeled litter")
-        if coarse not in cfg_classes:
-            skipped[leaf] += 1
-            continue
-        rec = img_id_to_rec[ann["image_id"]]
+        if coarse in cfg_classes:
+            anns_by_img[ann["image_id"]].append((ann, coarse))
+
+    for img_id, ann_list in anns_by_img.items():
+        rec = img_id_to_rec[img_id]
         img_path = images_dir / rec["file_name"]
         if not img_path.exists():
-            skipped["missing_image"] += 1
+            skipped["missing_image"] += len(ann_list)
             continue
         img = cv2.imread(str(img_path))
         if img is None:
-            skipped["unreadable"] += 1
+            skipped["unreadable"] += len(ann_list)
             continue
         # downloaded images may be resized (640px Flickr variants) — annotation
         # coords live in the ORIGINAL image space, so rescale the bbox
-        sx = img.shape[1] / rec["width"]
-        sy = img.shape[0] / rec["height"]
-        x, y, w, h = (c * s for c, s in zip(ann["bbox"], (sx, sy, sx, sy)))
-        m = 0.10  # margin
-        x0 = max(0, int(x - m * w))
-        y0 = max(0, int(y - m * h))
-        x1 = min(rec["width"], int(x + w * (1 + m)))
-        y1 = min(rec["height"], int(y + h * (1 + m)))
-        if x1 - x0 < 8 or y1 - y0 < 8:
-            skipped["too_small"] += 1
-            continue
-        cls_dir = out_dir / coarse
-        cls_dir.mkdir(exist_ok=True)
-        crop_name = f"{rec['file_name'].replace('/', '_').replace('.jpg', '')}_ann{ann['id']}.jpg"
-        cv2.imwrite(str(cls_dir / crop_name), img[y0:y1, x0:x1])
-        per_class[coarse] += 1
+        H, W = img.shape[:2]
+        sx = W / rec["width"]
+        sy = H / rec["height"]
+        for ann, coarse in ann_list:
+            x, y, w, h = (c * s for c, s in zip(ann["bbox"], (sx, sy, sx, sy)))
+            m = 0.10  # margin
+            x0 = max(0, int(x - m * w))
+            y0 = max(0, int(y - m * h))
+            x1 = min(W, int(x + w * (1 + m)))  # clamp to the ACTUAL image dims
+            y1 = min(H, int(y + h * (1 + m)))
+            if x1 - x0 < 8 or y1 - y0 < 8:
+                skipped["too_small"] += 1
+                continue
+            cls_dir = out_dir / coarse
+            cls_dir.mkdir(exist_ok=True)
+            # dataset filenames are semi-trusted: verify the destination stays
+            # inside the crops root (blocks path traversal via crafted file_name)
+            crop_name = f"{rec['file_name'].replace('/', '_').replace('.jpg', '')}_ann{ann['id']}.jpg"
+            dest = cls_dir / crop_name
+            if not dest.resolve().is_relative_to(out_dir.resolve()):
+                skipped["path_escape"] += 1
+                continue
+            cv2.imwrite(str(dest), img[y0:y1, x0:x1])
+            per_class[coarse] += 1
 
     # drop classes below the minimum count
     removed = {}

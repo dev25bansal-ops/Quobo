@@ -23,7 +23,7 @@ from sklearn.model_selection import train_test_split
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.quobo.config import ROOT, load_config
 from src.quobo.features import run_features
-from src.quobo.qsvm import make_qsvc, run_all_classifiers, scale_for_feature_map
+from src.quobo.qsvm import make_qsvc, fit_scale_for_feature_map
 from src.quobo.selection import select_features
 from sklearn.svm import SVC
 
@@ -57,8 +57,11 @@ def main() -> None:
 
         qsvc, _ = make_qsvc(k, cfg)
         qsvc.class_weight = "balanced"
-        qsvc.fit(scale_for_feature_map(Xtr[np.ix_(idx, sel)]), np.asarray(ytr)[idx])
-        pred_q = qsvc.predict(scale_for_feature_map(Xte[:, sel]))
+        Xtr_sel_q, Xte_sel_q = fit_scale_for_feature_map(
+            Xtr[np.ix_(idx, sel)].astype(float), Xte[:, sel].astype(float)
+        )
+        qsvc.fit(Xtr_sel_q, np.asarray(ytr)[idx])
+        pred_q = qsvc.predict(Xte_sel_q)
         agg["qsvm"] += confusion_matrix(yte, pred_q, labels=classes)
 
         rbf = SVC(kernel="rbf", class_weight="balanced", random_state=seed)

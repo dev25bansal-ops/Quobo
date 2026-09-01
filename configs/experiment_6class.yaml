@@ -36,6 +36,5 @@ qsvm:
   test_fraction: 0.25
 
 experiment:
-  n_repeats: 5
+  n_repeats: 25
   arms: [A_random, B_pca, C_mi, D_qubo]
-  baselines: [rbf_svm]

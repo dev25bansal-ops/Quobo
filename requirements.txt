@@ -20,3 +20,4 @@ tqdm
 pyyaml
 requests
 jupyterlab
+scipy

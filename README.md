@@ -2,7 +2,7 @@
 
 IDP3 project: TACO trash dataset → MobileNetV2 features → PCA → QUBO selects 8 features → QSVM.
 Four-arm ablation (all → same QSVM, 8-feature budget): **A** random · **B** PCA · **C** MI · **D** QUBO.
-Plus pollution analytics: cleanliness score per zone + Pollution Severity Index (PSI) mapped in QGIS.
+Plus pollution analytics: cleanliness score per zone + Pollution Severity Index (PSI).
 
 ## Setup
 
@@ -19,30 +19,43 @@ else runs locally free — QUBO on simulated annealing, QSVM on statevector simu
 ## Layout
 
 ```
-configs/            YAML experiment config (classes, feature budget, seeds, solver)
+configs/            YAML experiment configs (classes, feature budget, seeds, solver)
 data/raw/           TACO dataset (downloaded by src/quobo/data_prep.py)
 data/features/      MobileNetV2+PCA features as CSV (the QUBO/QSVM input)
 src/quobo/          pipeline package
   data_prep.py      download TACO, crop annotations, build classification dataset
   features.py       MobileNetV2 embeddings -> PCA -> features.csv
   selection.py      arms A-D: random / PCA / MI / QUBO feature selection
-  qsvm.py           ZZFeatureMap + FidelityQuantumKernel + QSVC, RBF-SVM baseline
+  qsvm.py           ZZFeatureMap + FidelityStatevectorKernel + QSVC, RBF-SVM baseline
   run_experiment.py orchestrates the full A-D ablation
-  psi.py            zone-level cleanliness score + Pollution Severity Index
-experiments/        per-run outputs (selected features, metrics, kernel caches)
-results/            figures + tables for the report
+scripts/            entry points beyond the core pipeline
+  confusion_analysis.py  per-class confusion matrices for the QUBO-8 arm
+  pollution_dashboard.py zone cleanliness score + PSI + HTML dashboard
+  fetch_missing.py       resumable TACO image fetcher (fallback URLs)
+experiments/        per-run outputs (selected features, metrics)
+results/            figures + tables + dashboard for the report
 ```
 
 ## Run
 
 ```bash
-.venv/Scripts/python -m src.quobo.run_experiment --config configs/experiment.yaml
+# full A-D ablation (config selectable; 6-class is the current paper run)
+.venv/Scripts/python -m src.quobo.run_experiment configs/experiment_6class.yaml
+
+# per-class confusion analysis (QUBO-8 arm)
+.venv/Scripts/python -m scripts.confusion_analysis
+
+# zone pollution dashboard (results/dashboard/dashboard.html)
+.venv/Scripts/python -m scripts.pollution_dashboard
+
+# data prep only (TACO download + crops) — already done for the paper run
+.venv/Scripts/python -m src.quobo.data_prep configs/experiment_6class.yaml
 ```
 
 ## Status
 
-- [ ] Stage 1: data prep (TACO download + crops)
-- [ ] Stage 2: features (MobileNetV2 → PCA-50 → CSV)
-- [ ] Stage 3: selection arms A-D
-- [ ] Stage 4: QSVM + RBF-SVM ablation
-- [ ] Stage 5: PSI / zone analytics
+- [x] Stage 1: data prep (TACO download + 1,836 crops, 6 classes)
+- [x] Stage 2: features (MobileNetV2 → PCA-50 → CSV)
+- [x] Stage 3: selection arms A-D
+- [x] Stage 4: QSVM + RBF-SVM ablation (results/tables/summary_*.csv)
+- [x] Stage 5: PSI / zone analytics (results/dashboard/dashboard.html)

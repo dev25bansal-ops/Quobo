@@ -9,8 +9,9 @@ Metrics (per zone):
   - cleanliness_score = clean_count / total_count * 100  (notebook formula)
     'clean' classes: bottle/can/carton/cup/lid (recyclables);
     'dirty': cigarette (toxic litter).
-  - PSI: hazard-weighted density index on the familiar 0-500 air-index scale:
-      sub-index per class = count / max_count * 100 (piecewise-linear style)
+  - PSI: hazard-weighted dominant-pollutant index on the 0-500 air-index scale:
+      sub-index per class = count_c * hazard_weight_c / global_max_weighted_count * 500
+      (global_max = worst (zone, class) weighted count across the city)
       headline = max sub-index (dominant-pollutant rule, as in US EPA AQI /
       Singapore PSI / India CPCB NAQI), then banded Good..Hazardous.
 
@@ -63,22 +64,29 @@ def load_crops() -> pd.DataFrame:
 
 
 def compute_zone_table(df: pd.DataFrame) -> pd.DataFrame:
-    rows = []
-    max_haz = None
-    haz = defaultdict(float)
     counts = defaultdict(Counter)
     for _, r in df.iterrows():
         z = zone_of(r["crop_path"])
         counts[z][r["class"]] += 1
-        haz[z] += HAZARD_W.get(r["class"], 1.0)
 
-    max_haz = max(haz.values()) or 1.0
+    # global max of the hazard-weighted class sub-index across all zones —
+    # the reference point that maps the worst (zone, class) cell to 500
+    global_max = max(
+        (c.get(cls, 0) * HAZARD_W.get(cls, 1.0)
+         for c in counts.values() for cls in HAZARD_W),
+        default=0.0,
+    ) or 1.0
+
+    rows = []
     for z in sorted(counts):
         c = counts[z]
         total = sum(c.values())
         clean = sum(v for k2, v in c.items() if k2 in CLEAN_CLASSES)
         dirty = total - clean
-        sub = {k2: v / max_haz * 100 for k2, v in c.items()}
+        # dominant-pollutant rule (US EPA AQI / Singapore PSI / India CPCB
+        # NAQI style): headline = max hazard-weighted class sub-index
+        sub = {k2: c.get(k2, 0) * HAZARD_W.get(k2, 1.0) / global_max * 500.0
+               for k2 in HAZARD_W}
         psi = max(min(500, round(max(sub.values()))), 0)
         band = next(b for t, b in PSI_BANDS if psi <= t)
         rows.append({
@@ -168,7 +176,8 @@ def render_dashboard(zt: pd.DataFrame, out_html: Path) -> None:
 <div class="map">{cells}</div>
 <div class="note"><b>Method.</b> Cleanliness score = clean count / total waste count × 100 (project definition).
 PSI = max hazard-weighted class sub-index on a 0–500 scale (dominant-pollutant rule as in US EPA AQI / Singapore PSI /
-India CPCB NAQI); hazard weights: cigarette ×3, bottle/can ×1, carton/cup ×0.8, lid ×0.5.
+India CPCB NAQI): sub-index<sub>c</sub> = count<sub>c</sub> × weight<sub>c</sub> / max over all zones and classes of
+(count × weight) × 500; weights: cigarette ×3, bottle/can ×1, carton/cup ×0.8, lid ×0.5.
 Zone assignment is a <b>demo mapping</b> of TACO image batches — TACO carries no GPS metadata. For a real Gwalior
 deployment, place zone-labeled crops under data/geo/&lt;Zone&gt;/ and rerun; the analytics are unchanged.</div>
 </body></html>'''
