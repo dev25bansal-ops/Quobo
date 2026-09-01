@@ -34,3 +34,6 @@ WhatsApp*.jpeg
 experiment6_p0_log.txt
 experiment6_freeze_log.txt
 experiment6_full_log.txt
+src/quobo.egg-info/
+experiment7arm_log.txt
+*.egg-info/
