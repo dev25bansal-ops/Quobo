@@ -13,10 +13,9 @@ import pandas as pd
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts.pollution_dashboard import compute_zone_table, zone_of
 from src.quobo.qsvm import fit_scale_for_feature_map
 from src.quobo.run_experiment import paired_significance
-from scripts.pollution_dashboard import compute_zone_table, zone_of
-
 
 # ---------- QML-001: scaler fit on train only ----------
 
@@ -81,6 +80,7 @@ def test_zone_of_batch(fname, expected):
 
 def test_bbox_clamp_actual_image_dims(tmp_path):
     import cv2
+
     from src.quobo.data_prep import build_crops
     imgs = tmp_path / "images"
     (imgs / "batch_1").mkdir(parents=True)

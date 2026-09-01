@@ -54,7 +54,7 @@ def run(cfg: dict) -> pd.DataFrame:
 
     k = cfg["selection"]["k"]
     rows = []
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    stamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     run_dir = ROOT / "experiments" / stamp
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -97,7 +97,6 @@ def run(cfg: dict) -> pd.DataFrame:
                     "selection_seconds": sel_s,
                     **{kk: vv for kk, vv in m.items() if kk != "predictions"},
                 })
-            lead = metrics.get("qsvm") or metrics.get("rbf_svm")
             log.info(
                 "rep %d %s: qsvm=%s rbf=%.3f (%.1fs)",
                 rep, arm,

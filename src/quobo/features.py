@@ -56,7 +56,7 @@ def extract_embeddings(model, crops_dir: Path, classes: list[str]) -> pd.DataFra
     probe = np.zeros((1, 224, 224, 3), dtype=np.float32)
     emb_dim = int(np.asarray(model.predict(probe, verbose=0)).shape[1])
     embs = np.zeros((len(paths), emb_dim), dtype=np.float32)
-    batch, bs = 0, 64
+    bs = 64
     for i in tqdm(range(0, len(paths), bs), desc="embeddings"):
         chunk = paths[i : i + bs]
         imgs = np.stack(

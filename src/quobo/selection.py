@@ -23,7 +23,6 @@ from itertools import combinations
 
 import numpy as np
 from sklearn.feature_selection import mutual_info_classif
-from sklearn.model_selection import train_test_split
 
 log = logging.getLogger(__name__)
 
@@ -108,13 +107,13 @@ def select_qubo(
         return chosen, sampleset.first.energy
 
     lo, hi = 0.0, 1.0
-    best_choice, best_energy = solve(lo)
+    best_choice, _ = solve(lo)
     # binary search on alpha: low alpha -> redundancy-dominated (fewer features),
     # high alpha -> importance-dominated (more features)
     for _ in range(12):
         mid = (lo + hi) / 2
-        choice, energy = solve(mid)
-        best_choice, best_energy = choice, energy
+        choice, _energy = solve(mid)
+        best_choice = choice
         if len(choice) == k:
             break
         if len(choice) < k:

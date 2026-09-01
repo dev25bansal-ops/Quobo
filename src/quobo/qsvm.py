@@ -18,8 +18,8 @@ log = logging.getLogger(__name__)
 
 def make_qsvc(k: int, cfg: dict):
     from qiskit.circuit.library import zz_feature_map
-    from qiskit_machine_learning.kernels import FidelityStatevectorKernel
     from qiskit_machine_learning.algorithms import QSVC
+    from qiskit_machine_learning.kernels import FidelityStatevectorKernel
 
     # function form (Qiskit >=2.1): plain QuantumCircuit, not deprecated BlueprintCircuit.
     # Statevector kernel: one statevector per sample + classical fidelities —

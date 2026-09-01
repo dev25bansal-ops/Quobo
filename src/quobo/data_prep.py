@@ -8,8 +8,7 @@ data/processed/crops/<class>/<img_id>_<ann_id>.jpg
 import json
 import logging
 import shutil
-import zipfile
-from collections import Counter, defaultdict, defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import cv2

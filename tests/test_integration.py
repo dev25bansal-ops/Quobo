@@ -38,6 +38,7 @@ def test_end_to_end_pipeline(synthetic_crops, monkeypatch, tmp_path):
     # tiny random-weight backbone instead of ImageNet MobileNetV2 — keeps the
     # real extract_embeddings code path (batching, preprocess, DataFrame)
     import tensorflow as tf
+
     from src.quobo import features as F
 
     def tiny_model():

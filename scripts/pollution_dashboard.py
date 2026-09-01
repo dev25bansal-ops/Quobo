@@ -19,7 +19,6 @@ Usage: .venv/Scripts/python.exe -m scripts.pollution_dashboard
 """
 from __future__ import annotations
 
-import json
 import logging
 import sys
 from collections import Counter, defaultdict
@@ -87,7 +86,6 @@ def load_predictions(clf: str = "rbf_svm", arm: str = "D_qubo") -> pd.DataFrame:
     across repeats, and maps each crop to its zone.
 
     Falls back to load_crops() when no experiment run exists."""
-    import glob as _glob
     import json as _json
 
     run_dirs = sorted((ROOT / "experiments").iterdir())
@@ -106,12 +104,11 @@ def load_predictions(clf: str = "rbf_svm", arm: str = "D_qubo") -> pd.DataFrame:
     for rep_file in reps:
         with open(rep_file, encoding="utf-8") as f:
             j = _json.load(f)
-        yte = j["y_test"]
         pred = j["metrics"][clf]["predictions"]
         # rep JSONs don't carry test crop paths — recover them by replaying
         # the same group split the experiment used (deterministic given seed)
-        from src.quobo.features import run_features
         from src.quobo.config import load_config
+        from src.quobo.features import run_features
         from src.quobo.run_experiment import crop_image_group
         cfg = load_config("configs/experiment_6class.yaml")
         df = run_features(cfg)
@@ -235,7 +232,7 @@ def render_dashboard(zt: pd.DataFrame, out_html: Path, truth_mode: bool = False)
 </style></head><body>
 <header>
   <h1>Quobo Pollution Dashboard — Gwalior Zones (demo)</h1>
-  <p>Classifier output: {source_label} · TACO crops · {datetime.now():%d %b %Y %H:%M}</p>
+  <p>Classifier output: {source_label} · TACO crops · {datetime.now().astimezone():%d %b %Y %H:%M %Z}</p>
 </header>
 <div class="kpis">
   <div class="kpi"><div class="v">{city_clean:.1f}%</div><div class="l">City cleanliness score</div></div>
