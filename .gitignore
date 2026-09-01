@@ -31,3 +31,4 @@ research/audit/*.json
 # notebook checkpoints & misc
 .ipynb_checkpoints/
 WhatsApp*.jpeg
+experiment6_p0_log.txt
