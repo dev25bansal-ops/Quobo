@@ -38,14 +38,8 @@ def main() -> None:
     reps = sorted(run_dir.glob("rep*_D_qubo.json"))
     log.info("using run %s (%d repeats)", run_dir.name, len(reps))
 
-    with open(run_dir / f"classes.json", encoding="utf-8") as f:
-        classes = json.load(f)
-    with open(run_dir / reps[0].name, encoding="utf-8") as f:
-        first = json.load(f)
-    # classes list persisted by the experiment run (see run_experiment)
-    if "classes" in first:
-        classes = first["classes"]
-    yte_by_rep = {r.stem.split("_")[0]: r for r in reps}
+    with open(reps[0], encoding="utf-8") as f:
+        classes = json.load(f)["classes"]
 
     agg = {"qsvm": np.zeros((len(classes), len(classes)), dtype=int),
            "rbf_svm": np.zeros((len(classes), len(classes)), dtype=int)}
