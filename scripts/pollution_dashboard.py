@@ -50,13 +50,15 @@ import html as _html
 
 def zone_of(crop_path: str, mode: str = "batch") -> str:
     """Zone for a crop. 'batch' mode maps TACO batch_N -> Zone A..F (demo).
-    Real deployments: place zone-labeled crops under data/geo/<Zone name>/
-    and pass mode='folder', which reads the parent directory name."""
+    Real deployments: place zone-labeled crops under data/geo/<Zone name>/<class>/
+    and pass mode='folder' — the zone is the CLASS folder's parent (two levels
+    above the file)."""
     p = Path(crop_path)
     if mode == "folder":
-        parent = p.parent.name
-        if parent.startswith("Zone"):
-            return parent
+        # layout: .../data/geo/<Zone>/<class>/<file>.jpg -> zone = parent of parent
+        grandparent = p.parent.parent.name
+        if grandparent.startswith("Zone"):
+            return grandparent
         return "Unassigned"
     name = p.name  # batch_3_000123_ann45.jpg
     if name.startswith("batch_"):
@@ -133,7 +135,9 @@ def load_predictions(clf: str = "rbf_svm", arm: str = "D_qubo") -> pd.DataFrame:
 def compute_zone_table(df: pd.DataFrame) -> pd.DataFrame:
     counts = defaultdict(Counter)
     for _, r in df.iterrows():
-        z = zone_of(r["crop_path"])
+        # folder-mode rows carry their zone directly; otherwise fall back to
+        # the filename heuristic (demo batch mapping)
+        z = r.get("zone_dir") or zone_of(r["crop_path"])
         counts[z][r["class"]] += 1
 
     # global max of the hazard-weighted class sub-index across all zones —

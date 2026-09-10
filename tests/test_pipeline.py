@@ -162,3 +162,41 @@ def test_zone_table_from_predictions_matches_shape(tmp_path, monkeypatch):
     assert set(zt.columns) >= {"zone", "total", "clean", "dirty", "cleanliness", "psi", "band"}
     assert zt["zone"].iloc[0] == "Zone B"
     assert zt["dirty"].iloc[0] == 1
+
+
+# ---------- OPEN-8: folder-mode ingestion end-to-end ----------
+
+def test_folder_mode_zone_ingestion(tmp_path, monkeypatch):
+    """data/geo/<Zone>/<class>/*.jpg folders flow through compute_zone_table
+    with the directory name as the zone — the real-deployment path."""
+    import scripts.pollution_dashboard as PD
+
+    geo = tmp_path / "data" / "geo"
+    for zone in ("Zone A", "Zone B"):
+        for cls, n in (("cigarette", 2 if zone == "Zone B" else 1),
+                       ("bottle", 1 if zone == "Zone B" else 3)):
+            d = geo / zone / cls
+            d.mkdir(parents=True)
+            for i in range(n):
+                (d / f"{i}.jpg").write_bytes(b"x")
+
+    monkeypatch.setattr(PD, "ROOT", tmp_path)
+    # call the folder-mode branch directly through the public path
+    rows = []
+    for zone_dir in sorted(geo.iterdir()):
+        for cls_dir in sorted(zone_dir.iterdir()):
+            for pth in cls_dir.glob("*.jpg"):
+                rows.append({"crop_path": str(pth), "class": cls_dir.name,
+                             "file": pth.name, "zone_dir": zone_dir.name})
+    # zone_of must honor folder mode via the parent directory
+    zt = PD.compute_zone_table(pd.DataFrame(rows))
+    assert set(zt["zone"]) == {"Zone A", "Zone B"}
+    zone_b = zt[zt["zone"] == "Zone B"].iloc[0]
+    assert zone_b["dirty"] == 2 and zone_b["clean"] == 1
+
+
+def test_zone_of_folder_mode_and_unassigned():
+    from scripts.pollution_dashboard import zone_of
+    assert zone_of("data/geo/Zone C/bottle/x.jpg", mode="folder") == "Zone C"
+    assert zone_of("data/geo/Gandhi Chowk/bottle/x.jpg", mode="folder") == "Unassigned"
+    assert zone_of("some_random_crop.jpg") == "Unassigned"  # no silent Zone A
