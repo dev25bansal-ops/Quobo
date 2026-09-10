@@ -75,7 +75,7 @@ def run_raw_embeddings(cfg: dict) -> pd.DataFrame:
     The leak-free protocol (OPEN-5) refits scaler+PCA inside each train/test
     split from this cache; the legacy transductive PCA CSV is still produced
     by run_features for backward compatibility."""
-    crops_dir = ROOT / "data" / "processed" / "crops"
+    crops_dir = ROOT / cfg["data"].get("crops_dir_override", "data/processed/crops")
     classes = cfg["data"]["classes"]
     tag = "raw_" + "_".join(sorted(classes))
     out_npz = ROOT / "data" / "features" / f"{tag}.npz"
@@ -134,7 +134,7 @@ def run_features(cfg: dict) -> pd.DataFrame:
     """Legacy cached PCA features (transductive fit — kept for dashboard/
     confusion consumers). The experiment path uses run_raw_embeddings +
     fit_pca_on_train instead (leak-free)."""
-    crops_dir = ROOT / "data" / "processed" / "crops"
+    crops_dir = ROOT / cfg["data"].get("crops_dir_override", "data/processed/crops")
     classes = cfg["data"]["classes"]
     tag = "features_" + "_".join(sorted(classes))
     out_csv = ROOT / "data" / "features" / f"{tag}.csv"

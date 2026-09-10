@@ -36,7 +36,7 @@ def load_config(path: str = "configs/experiment.yaml") -> dict:
         "experiment": {"n_repeats", "arms"},
         "selection": {"k"},
         "qubo": {"mi_bins", "sa_sweeps", "sa_repeats"},
-        "data": {"classes", "min_images_per_class"},
+        "data": {"classes", "min_images_per_class", "crops_dir_override"},
     }
     for section, keys in known_subkeys.items():
         if section in cfg and isinstance(cfg[section], dict):

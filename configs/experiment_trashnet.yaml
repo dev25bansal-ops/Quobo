@@ -1,0 +1,38 @@
+# Cross-dataset replication: TrashNet (Stanford, MIT license).
+# Drop the dataset so data/trashnet/<class>/*.jpg exists, then symlink/copy
+# those folders into data/processed/crops_trashnet/<class>/ and run:
+#   .venv/Scripts/python.exe -m src.quobo.run_experiment configs/experiment_trashnet.yaml
+# (see configs/README_cross_dataset.md)
+#
+# NOTE: this config requires a small extension to features.py (crops dir
+# override) tracked in the issue register; without it, the pipeline reads
+# data/processed/crops and will NOT pick this file up.
+seed: 42
+
+data:
+  classes: [glass, paper, cardboard, plastic, metal, trash]
+  min_images_per_class: 100
+  crops_dir_override: data/processed/crops_trashnet
+
+features:
+  backbone: MobileNetV2
+  pca_components: 50
+
+selection:
+  k: 8
+
+qubo:
+  mi_bins: 16
+  sa_sweeps: 20000
+  sa_repeats: 10
+
+qsvm:
+  reps: 1
+  entanglement: linear
+  max_train_samples: 400
+  test_fraction: 0.25
+  tune_rbf: true
+
+experiment:
+  n_repeats: 25
+  arms: [A_random, B_pca, C_mi, D_qubo, E_lasso, F_mrmr, Z_full]
