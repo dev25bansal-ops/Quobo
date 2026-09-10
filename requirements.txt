@@ -13,7 +13,7 @@ pillow
 
 # Data + utils
 pandas
-numpy<2.3
+numpy>=2.3,<2.6
 matplotlib
 seaborn
 tqdm

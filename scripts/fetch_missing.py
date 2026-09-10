@@ -22,6 +22,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("fetch_missing")
 
 MAX_DIM = 1024
+MAX_IMG_BYTES = 20 * 1024 * 1024  # ~14 MB is the largest legitimate olm-s3 original
 WORKERS = 8
 RETRIES = 4
 
@@ -34,6 +35,8 @@ def fetch_one(session: requests.Session, im: dict, dest: Path) -> tuple[str, str
             try:
                 r = session.get(url, timeout=(10, 120))
                 r.raise_for_status()
+                if len(r.content) > MAX_IMG_BYTES:
+                    raise ValueError(f"image response {len(r.content)} bytes exceeds cap")
                 img = Image.open(io.BytesIO(r.content))
                 img = img.convert("RGB")
                 if max(img.size) > MAX_DIM:
@@ -43,6 +46,9 @@ def fetch_one(session: requests.Session, im: dict, dest: Path) -> tuple[str, str
                 return "ok", ""
             except Exception as e:  # noqa: BLE001
                 last_err = f"{type(e).__name__}: {e}"[:80]
+                if isinstance(e, (ValueError,)) or "404" in str(last_err) or "410" in str(last_err):
+                    # size violation or permanently dead link — no point retrying
+                    return "failed", last_err
         time.sleep(2 * (attempt + 1))
     return "failed", last_err
 

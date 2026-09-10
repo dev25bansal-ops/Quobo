@@ -78,10 +78,11 @@ def run(cfg: dict) -> pd.DataFrame:
             t0 = time.perf_counter()
             if arm == "Z_full":  # no-selection ceiling: all 50 features
                 sel = list(range(X.shape[1]))
-                sel_info = {}
+                sel_info = {"no_selection": True}
+                sel_s = 0.0
             else:
                 sel, sel_info = select_features(arm, Xtr, ytr, k, seed, cfg["qubo"])
-            sel_s = time.perf_counter() - t0
+                sel_s = time.perf_counter() - t0
 
             metrics = run_all_classifiers(
                 Xtr[:, sel], ytr, Xte[:, sel], yte, cfg, rep_offset=rep
@@ -113,6 +114,10 @@ def run(cfg: dict) -> pd.DataFrame:
                     "y_test": [str(v) for v in yte],
                     "metrics": metrics,
                     "mi_table": sel_info.get("I"),
+                    "selection_info": {kk: vv for kk, vv in sel_info.items()
+                                       if kk in ("alpha", "alpha_trace", "nudged_to_k",
+                                                 "no_selection", "k_selected",
+                                                 "n_features_candidate")},
                 }, f, indent=1)
 
     results = pd.DataFrame(rows)

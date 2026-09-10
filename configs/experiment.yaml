@@ -14,12 +14,10 @@ data:
     - lid
     - other
   min_images_per_class: 40
-  img_size: 224
 
 features:
   backbone: MobileNetV2        # 1280-d embeddings
   pca_components: 50           # candidate pool for selection
-  standardize: true
 
 selection:
   k: 8                         # feature budget for ALL arms (comparability)
@@ -32,7 +30,6 @@ qubo:
   sa_repeats: 10
 
 qsvm:
-  feature_map: ZZFeatureMap
   reps: 1
   entanglement: linear         # 7 ZZ pairs vs full's 28 — lower concentration risk
   max_train_samples: 400       # kernel matrix is O(n^2); subsample beyond this

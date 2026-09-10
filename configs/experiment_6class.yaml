@@ -13,12 +13,10 @@ data:
     - cup
     - lid
   min_images_per_class: 40
-  img_size: 224
 
 features:
   backbone: MobileNetV2
   pca_components: 50
-  standardize: true
 
 selection:
   k: 8
@@ -29,7 +27,6 @@ qubo:
   sa_repeats: 10
 
 qsvm:
-  feature_map: ZZFeatureMap
   reps: 1
   entanglement: linear
   max_train_samples: 400

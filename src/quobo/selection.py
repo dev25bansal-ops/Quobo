@@ -108,12 +108,16 @@ def select_qubo(
 
     lo, hi = 0.0, 1.0
     best_choice, _ = solve(lo)
+    alpha_used = lo
+    alpha_trace = [((lo), len(best_choice))]
     # binary search on alpha: low alpha -> redundancy-dominated (fewer features),
     # high alpha -> importance-dominated (more features)
     for _ in range(12):
         mid = (lo + hi) / 2
         choice, _energy = solve(mid)
         best_choice = choice
+        alpha_used = mid
+        alpha_trace.append((round(mid, 6), len(choice)))
         if len(choice) == k:
             break
         if len(choice) < k:
@@ -122,7 +126,9 @@ def select_qubo(
             hi = mid
 
     # final polish: if not exactly k, nudge by flipping features at the margin
+    nudge_used = False
     if len(best_choice) != k:
+        nudge_used = True
         log.warning("alpha search gave %d features (target %d) — nudging", len(best_choice), k)
         if len(best_choice) < k:
             rest = [i for i in range(n) if i not in best_choice]
@@ -138,6 +144,9 @@ def select_qubo(
         "n_features_candidate": n,
         "k_target": k,
         "k_selected": len(best_choice),
+        "alpha": round(alpha_used, 6),
+        "alpha_trace": alpha_trace,
+        "nudged_to_k": nudge_used,
         "sweeps": sweeps,
     }
     return sorted(best_choice), info

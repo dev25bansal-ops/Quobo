@@ -13,7 +13,7 @@ dependencies = [
   "dimod>=0.12.22",
   "dwave-samplers>=1.8.0",
   "scikit-learn>=1.5,<2",
-  "numpy<2.3",
+  "numpy>=2.3,<2.6",
   "pandas",
   "scipy",
   "opencv-python",
