@@ -93,6 +93,30 @@ def download_taco_images(ann_path: Path, images_dir: Path) -> None:
             log.warning("  %s: %s", fn, err)
 
 
+def record_provenance(ann_path: Path, raw_dir: Path) -> dict:
+    """OPEN-6: pin the dataset snapshot — source URL, sha256, mtime, counts.
+    The survey found TACO v1.0 (1,500 images) vs the living GitHub dump
+    (3,831) diverge; the paper must state which snapshot produced the results."""
+    import hashlib
+    from datetime import datetime, timezone
+
+    h = hashlib.sha256(ann_path.read_bytes()).hexdigest()
+    with open(ann_path, encoding="utf-8") as f:
+        coco = json.load(f)
+    prov = {
+        "source_url": TACO_URL,
+        "sha256": h,
+        "file_mtime": datetime.fromtimestamp(ann_path.stat().st_mtime, tz=timezone.utc).isoformat(),
+        "n_images": len(coco["images"]),
+        "n_annotations": len(coco["annotations"]),
+        "note": "snapshot recorded at first pipeline run; v1.0 paper release is 1500 images",
+    }
+    with open(raw_dir / "annotations_provenance.json", "w", encoding="utf-8") as f:
+        json.dump(prov, f, indent=2)
+    log.info("provenance recorded: sha256=%s... n_images=%d", h[:12], prov["n_images"])
+    return prov
+
+
 def download_taco(raw_dir: Path) -> tuple[Path, Path]:
     """Download annotations + images. Returns (annotations_path, images_dir)."""
     ann_path = raw_dir / "annotations.json"
@@ -206,6 +230,7 @@ def run_data_prep(cfg: dict) -> dict:
     raw = ROOT / "data" / "raw"
     crops_dir = ROOT / "data" / "processed" / "crops"
     ann_path, images_dir = download_taco(raw)
+    record_provenance(ann_path, raw)
     stats = build_crops(
         ann_path,
         images_dir,
