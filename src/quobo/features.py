@@ -69,13 +69,71 @@ def extract_embeddings(model, crops_dir: Path, classes: list[str]) -> pd.DataFra
     )
 
 
-def run_features(cfg: dict) -> pd.DataFrame:
-    """Return the 50-d PCA features (cached).
+def run_raw_embeddings(cfg: dict) -> pd.DataFrame:
+    """Cache the raw MobileNetV2 embeddings (1280-d) + labels + crop paths.
 
-    NOTE: the scaler+PCA here are fit on the FULL dataset (all crops), which
-    is transductive w.r.t. any later train/test split. This is uniform across
-    all ablation arms (documented limitation); the leak-free protocol would
-    refit per split from the raw embeddings cached alongside."""
+    The leak-free protocol (OPEN-5) refits scaler+PCA inside each train/test
+    split from this cache; the legacy transductive PCA CSV is still produced
+    by run_features for backward compatibility."""
+    crops_dir = ROOT / "data" / "processed" / "crops"
+    classes = cfg["data"]["classes"]
+    tag = "raw_" + "_".join(sorted(classes))
+    out_npz = ROOT / "data" / "features" / f"{tag}.npz"
+    meta_path = ROOT / "data" / "features" / f"{tag}_meta.json"
+    fp = crops_fingerprint(crops_dir, classes)
+
+    if out_npz.exists():
+        try:
+            with open(meta_path, encoding="utf-8") as f:
+                cached_fp = json.load(f)["crops_fingerprint"]
+            if cached_fp == fp:
+                log.info("raw embeddings cache hit: %s", out_npz.name)
+                return load_raw_embeddings(out_npz)
+            log.warning("raw cache fingerprint mismatch — recomputing embeddings")
+        except (FileNotFoundError, KeyError, json.JSONDecodeError):
+            log.warning("raw cache meta missing — recomputing embeddings")
+        out_npz.unlink(missing_ok=True)
+
+    model = load_model()
+    df = extract_embeddings(model, crops_dir, classes)
+    emb_cols = [c for c in df.columns if c.startswith("e")]
+    np.savez_compressed(
+        out_npz,
+        embeddings=df[emb_cols].values.astype(np.float32),
+        labels=np.asarray(df["label"].values, dtype="U"),  # unicode, not object
+        crop_paths=np.asarray(df["crop_path"].values, dtype="U"),
+    )
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump({"crops_fingerprint": fp, "n_samples": len(df)}, f, indent=2)
+    log.info("raw embeddings cached: %s (%d x %d)", out_npz.name, len(df), len(emb_cols))
+    return load_raw_embeddings(out_npz)
+
+
+def load_raw_embeddings(out_npz: Path) -> pd.DataFrame:
+    with np.load(out_npz, allow_pickle=False) as z:
+        n_comp = z["embeddings"].shape[1]
+        return pd.DataFrame(
+            z["embeddings"], columns=[f"e{i}" for i in range(n_comp)]
+        ).assign(label=z["labels"], crop_path=z["crop_paths"])
+
+
+def fit_pca_on_train(Xtr_raw: np.ndarray, Xall_raw: np.ndarray, n_comp: int, seed: int):
+    """Fit StandardScaler+PCA on TRAIN rows only, transform all rows.
+    Returns (Xtr_pca, Xall_pca, explained_var_pct). This is the leak-free
+    replacement for the transductive global fit."""
+    scaler = StandardScaler().fit(Xtr_raw)
+    Xtr_s = scaler.transform(Xtr_raw)
+    Xall_s = scaler.transform(Xall_raw)
+    pca = PCA(n_components=n_comp, random_state=seed).fit(Xtr_s)
+    Xtr_p = pca.transform(Xtr_s)
+    Xall_p = pca.transform(Xall_s)
+    return Xtr_p, Xall_p, float(100 * pca.explained_variance_ratio_.sum())
+
+
+def run_features(cfg: dict) -> pd.DataFrame:
+    """Legacy cached PCA features (transductive fit — kept for dashboard/
+    confusion consumers). The experiment path uses run_raw_embeddings +
+    fit_pca_on_train instead (leak-free)."""
     crops_dir = ROOT / "data" / "processed" / "crops"
     classes = cfg["data"]["classes"]
     tag = "features_" + "_".join(sorted(classes))

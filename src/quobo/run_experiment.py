@@ -18,7 +18,7 @@ import pandas as pd
 from sklearn.model_selection import GroupShuffleSplit
 
 from .config import ROOT, load_config
-from .features import run_features
+from .features import fit_pca_on_train, run_raw_embeddings
 from .qsvm import run_all_classifiers
 from .selection import select_features
 
@@ -45,11 +45,15 @@ def crop_image_group(crop_path: str) -> str:
 
 def run(cfg: dict) -> pd.DataFrame:
     t_start = time.perf_counter()
-    df = run_features(cfg)
-    feat_cols = [c for c in df.columns if c.startswith("f")]
-    X = df[feat_cols].values.astype(float)
-    y = np.asarray(df["label"].values)
-    groups = np.array([crop_image_group(p) for p in df["crop_path"]])
+    # OPEN-5 leak-free protocol: raw embeddings cached once (backbone is
+    # deterministic per crop), then scaler+PCA refit INSIDE each split on
+    # train rows only. PCA rotation no longer sees held-out data.
+    raw = run_raw_embeddings(cfg)
+    emb_cols = [c for c in raw.columns if c.startswith("e")]
+    X_raw = raw[emb_cols].values.astype(np.float32)
+    y = np.asarray(raw["label"].values)
+    groups = np.array([crop_image_group(p) for p in raw["crop_path"]])
+    n_comp = cfg["features"]["pca_components"]
     n_group_leaks = 0
 
     k = cfg["selection"]["k"]
@@ -60,24 +64,27 @@ def run(cfg: dict) -> pd.DataFrame:
 
     for rep in range(cfg["experiment"]["n_repeats"]):
         seed = cfg["seed"] + rep
-        # group-aware split: no photo's crops straddle train/test (LKG-002).
-        # Groups keep the split approximately stratified via their majority label.
+        # group-aware split on raw row indices; PCA refit on train rows only
         gss = GroupShuffleSplit(n_splits=1, test_size=cfg["qsvm"]["test_fraction"],
                                 random_state=seed)
-        idx_tr, idx_te = next(gss.split(X, y, groups=groups))
-        Xtr, Xte, ytr, yte = X[idx_tr], X[idx_te], y[idx_tr], y[idx_te]
+        idx_tr, idx_te = next(gss.split(X_raw, y, groups=groups))
+        Xtr, Xte, ytr, yte = X_raw[idx_tr], X_raw[idx_te], y[idx_tr], y[idx_te]
+        Xtr_p, Xall_p, ev_pct = fit_pca_on_train(Xtr, np.vstack([Xtr, Xte]), n_comp, seed)
+        Xte = Xall_p[len(Xtr):]
+        Xtr = Xtr_p
         overlap = set(groups[idx_tr]) & set(groups[idx_te])
         if overlap:
             n_group_leaks += len(overlap)
         # stratification report (group splits can drift from crop-level balance)
         if rep == 0:
-            log.info("rep 0 split: train=%d test=%d | test class share %s",
-                     len(idx_tr), len(idx_te),
+            log.info("rep 0 split: train=%d test=%d PCA-%d explains %.1f%% (train-fit) "
+                     "| test class share %s",
+                     len(idx_tr), len(idx_te), n_comp, ev_pct,
                      {c: round(float((yte == c).mean()), 3) for c in sorted(set(yte))})
         for arm in cfg["experiment"]["arms"]:
             t0 = time.perf_counter()
             if arm == "Z_full":  # no-selection ceiling: all 50 features
-                sel = list(range(X.shape[1]))
+                sel = list(range(Xtr.shape[1]))  # all PCA components (Z_full ceiling)
                 sel_info = {"no_selection": True}
                 sel_s = 0.0
             else:

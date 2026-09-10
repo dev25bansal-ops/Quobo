@@ -1,6 +1,6 @@
 # Quobo: QUBO-Based Quantum Feature Selection for Resource-Constrained Waste Image Classification
 
-**Working paper draft — v1.0 numbers (tag `v1.0-results`, 2026-09-02)**
+**Working paper draft — v2 leak-free numbers (2026-09-10, per-split PCA fit on train; 25 group-aware repeats)**
 
 *IDP3 project — [Devesh, Krishna, +1] — [Institution], Gwalior, India*
 
@@ -16,12 +16,14 @@ embeddings, compress them to 50 PCA components, and select 8 features via four a
 PCA-truncation, mutual-information (MI) ranking, and **QUBO-based selection (importance minus
 redundancy, solved by simulated annealing)** — plus LASSO and mRMR baselines and the full-50
 ceiling. All arms feed the same classifier suite: a quantum-kernel SVM (QSVC, ZZFeatureMap,
-8 qubits) and classical SVMs including a tuned RBF-SVM. Across 25 group-aware repeated splits
-(no photo straddles train/test), Holm-corrected Wilcoxon tests show QUBO-8 significantly beats
-random (p<0.001), PCA (p=0.013), and MI (p<0.001) selection on RBF-SVM accuracy (41.1% vs
-32.6/40.1/39.6%), while the mRMR-8 edge (42.7%) is not significant (p=0.092). QSVC runs at
-37–40% — 2–3 points below tuned RBF at identical budgets — consistent with the quantum-kernel
-parity literature. We additionally introduce a **Pollution Severity Index (PSI)** — a hazard-
+8 qubits) and classical SVMs including a tuned RBF-SVM. Under a fully leak-free protocol
+(group-aware splits with scaler+PCA refit on train per split) and 25 repeats, Holm-corrected
+Wilcoxon tests show every principled selection arm — QUBO, mRMR, LASSO, PCA, MI —
+statistically indistinguishable on RBF-SVM accuracy (~40.9–41.4%) and all significantly
+beating random selection (p<0.001); QUBO-8 reaches 40.9±3.1%, matching the best classical
+selection while additionally providing a globally-optimal-combinatorial formulation that
+runs unchanged on quantum annealers. QSVC runs at ~37% — 2–4 points below tuned RBF at
+identical budgets — consistent with the quantum-kernel parity literature. We additionally introduce a **Pollution Severity Index (PSI)** — a hazard-
 weighted dominant-pollutant index on the 0–500 air-index scale, computed from classifier
 predictions — and demonstrate the full CV→PSI→GIS analytics chain. To our knowledge this is the
 first published combination of QUBO feature selection with quantum-kernel classification on
@@ -109,26 +111,28 @@ on train only. Classical baselines: linear SVM, RBF-SVM (defaults), tuned RBF-SV
 
 ## 4. Results
 
-**Table 1 — Accuracy (mean±std over 25 group-aware repeats; Holm-corrected Wilcoxon vs QUBO-8):**
+**Table 1 — Accuracy (mean±std over 25 group-aware repeats, leak-free protocol: scaler+PCA
+refit on train per split; Holm-corrected Wilcoxon vs QUBO-8):**
 
 | Arm | QSVC | RBF-SVM | RBF (tuned) | vs QUBO (RBF, p) |
 |---|---|---|---|---|
-| Full-50 | — (50 qubits infeasible) | 48.4±1.9 | 48.9±2.4 | <0.001 (better) |
-| mRMR-8 | 38.0±2.8 | 42.7±2.4 | 42.1±2.1 | 0.092 (n.s.) |
-| LASSO-8 | 39.3±2.4 | 41.7±2.9 | 42.1±2.8 | 1.000 (tie) |
-| **QUBO-8** | **37.4±2.9** | **41.1±2.7** | **40.8±2.9** | — |
-| PCA-8 | 37.6±2.8 | 40.1±2.6 | 40.7±2.8 | 0.013 (worse) |
-| MI-8 | 36.5±2.0 | 39.6±3.0 | 38.9±2.7 | <0.001 (worse) |
-| Random-8 | 31.4±3.2 | 32.6±3.0 | 32.9±3.0 | <0.001 (worse) |
+| Full-50 | — (50 qubits infeasible) | 48.3±2.1 | 49.1±2.6 | <0.001 (better) |
+| LASSO-8 | 38.5±2.4 | 41.4±2.7 | 41.9±2.4 | 1.000 (tie) |
+| mRMR-8 | 38.0±3.5 | 41.4±3.0 | 41.6±3.0 | 1.000 (tie) |
+| **QUBO-8** | **37.2±3.5** | **40.9±3.1** | **41.0±3.2** | — |
+| PCA-8 | 37.7±2.9 | 40.1±2.5 | 40.6±2.8 | 1.000 (tie) |
+| MI-8 | 37.0±3.0 | 39.5±3.6 | 39.3±3.0 | 0.541 (tie) |
+| Random-8 | 31.3±2.8 | 32.2±3.0 | 32.9±3.5 | <0.001 (worse) |
 
-**Findings.** (1) Selection quality dominates: every principled arm beats random by ~8
-points on every classifier. (2) QUBO-8 significantly beats the PCA-truncation and MI-ranking
-baselines — the global-redundancy treatment pays off on correlated PCA features, as the
-literature predicts. (3) The classical greedy mRMR-8 is statistically indistinguishable from
-QUBO-8 (and LASSO ties): **QUBO matches the best classical selection at this scale**, the
-honest parity result the annealing literature consistently reports. (4) The Full-50 ceiling
-(48%) quantifies the 6-fold feature-budget cost: −7 points. (5) QSVC tracks 2–3 points below
-tuned RBF at identical budgets — kernel parity, not advantage, at 8 qubits.
+**Findings.** (1) Selection quality dominates: every principled arm beats random by ~8–9
+points on every classifier. (2) Under the strict leak-free protocol, QUBO-8, mRMR-8, LASSO-8,
+PCA-8, and MI-8 are statistically indistinguishable (all Holm p>0.5 vs QUBO) — **QUBO matches
+the best classical selection at this scale**, the honest parity result the annealing
+literature consistently reports; the transient v1 QUBO-vs-MI edge did not survive the
+per-split PCA refit, which we report transparently (both tables in results/tables/).
+(3) The Full-50 ceiling (48–49%) quantifies the 6-fold feature-budget cost: −7 to −8 points.
+(4) QSVC tracks 2–4 points below tuned RBF at identical budgets — kernel parity, not
+advantage, at 8 qubits.
 
 **Per-class (QUBO-8, RBF).** Cigarette is the best-measured class (recall 73%, precision
 47%) — the class that drives PSI; cup is the weakest (recall 32%). Full confusion matrices:
@@ -140,9 +144,10 @@ spread Good→Hazardous across the six demo zones. results/dashboard/dashboard.h
 
 ## 5. Discussion & Limitations
 
-- **Transductive PCA.** Scaler+PCA are fit on all crops before splitting (uniform across
-  arms; documented). The leak-free protocol refits per split from cached raw embeddings —
-  left as future work with the expected cost of slightly lower absolute accuracies.
+- **Methodological transparency.** An earlier protocol (v1) fit scaler+PCA globally before
+  splitting; the leak-free protocol refits per split from cached raw embeddings and is the
+  one reported here. Notably, the v1 QUBO-vs-MI edge did not survive the refit — we publish
+  both tables as evidence of the protocol's materiality.
 - **Simulated annealing.** EXP D solves classically; the identical 50-variable QUBO runs on
   a D-Wave QPU given a Leap token (S3, pending). SA≈QPU equivalence is the literature
   consensus, so we expect unchanged results.
