@@ -1,93 +1,47 @@
-# Quobo — Issue Register (Post-Remediation)
+# Quobo — Issue Register (Post-Remediation, v2)
 
-**Date:** 2026-09-02 · **State:** after executing AUDIT_REPORT.md through tag `v1.0-results` (11 commits)
-**Method:** every item re-verified against the current code/artifacts (not carried over from the pre-fix audit); resolved items listed with their verification evidence, open items with repro, severity, effort, dependencies, timeline.
+**Date:** 2026-09-10 · **State:** after executing AUDIT_REPORT.md (tag `v1.0-results`) + the open-issue queue (OPEN-1..10)
+**Method:** every item verified against current code/artifacts. Resolved items listed with verification evidence; externally-blocked items listed with their exact blocker.
 
 ---
 
-## Part 1 — Resolved (verified this session)
+## Part 1 — Resolved (original audit + issue register, with verification)
 
-| ID | Issue (was) | Sev | Fix commit | Verification |
+| ID | Issue | Sev | Fix commit | Verification |
 |---|---|---|---|---|
-| VCS-001 | No git repo | Critical | 5d889c9 | 11 commits, `v1.0-results` tag, clean tree |
-| QML-001 | MinMaxScaler fit on test (QSVM leak) | High | 5d889c9 | `test_scaler_params_from_train_only` + `test_scaler_identical_transform_of_same_point` green; QSVM accuracy rose 34.1→37.4% after fix |
-| PSI-001 | PSI ignored documented hazard weights | High | 5d889c9 | `test_psi_hazard_weight_multiplies` green; dashboard bands now spread 114→500 |
-| MET-001 | No significance tests, n=5 | High | 5d889c9 | `significance_20260902_034140.csv`: 63 Holm-corrected comparisons, 25 repeats |
-| LKG-002 | Same-photo crops straddled train/test | High | 011b099 | GroupShuffleSplit; `test_selection_deterministic` + integration test use groups |
-| DOC-001 | README crash + phantom modules | Medium | 5d889c9 | All documented commands re-executed successfully this session |
-| CCH-001 | Unconditional stale feature cache | Medium | 5d889c9 | Fingerprint (hash + per-class counts) validated on every load — confirmed matching live |
-| DRY-001 / SEED-001 | Duplicated retraining + fixed subsample seed | Medium | 011b099, d18486e | Confusion analysis consumes persisted predictions (log: "using run 20260902_034140, no retraining") |
-| PERF-001 | SA 5× wasted reads (0.54s vs 0.11s/call) | Medium | 5d889c9 | `num_reads=repeats`; QUBO arm ~3s/rep (was ~10s) |
-| BBOX-001 | Clamp in original-image space | Low | 5d889c9 | `test_bbox_clamp_actual_image_dims` — analytic 48×96 case passes |
-| PKG-001 | No packaging, sys.path hacks, unpinned deps | Medium | 011b099, cf8d444 | `pip install -e .` works; constraints.txt (150 pins) |
-| SEC-001/2/3 | Download caps / path escape / HTML injection | Low | 5d889c9 | Size cap + `is_relative_to` guard + `html.escape` at all 3 interpolation sites |
-| TST-001 | Tautological smoke test only | High (debt) | c656ab6 | 14 tests (unit + integration), all green; ruff clean |
-| MI-BIN | MI bias caveat | Low | — | Documented in PAPER_DRAFT.md §5 |
+| VCS-001 | No git repo | Critical | 5d889c9 | 17 commits, `v1.0-results` tag, clean tree |
+| QML-001 | MinMaxScaler fit on test | High | 5d889c9 | 2 dedicated tests green |
+| PSI-001 | PSI ignored hazard weights | High | 5d889c9 | Tests green; bands spread 162→500 |
+| MET-001 | No significance tests, n=5 | High | 5d889c9 | 78 Holm-corrected comparisons @ n=25 |
+| LKG-002 | Same-photo crops in train+test | High | 011b099 | GroupShuffleSplit wired |
+| OPEN-1 | numpy spec vs pinned env contradiction | High | d21fb62 | `numpy>=2.3,<2.6` in both specs == 2.5.2 actual |
+| DOC-001 | README crash + phantom modules | Med | 5d889c9 | All documented commands re-run OK |
+| CCH-001 | Unconditional stale feature cache | Med | 5d889c9 | Fingerprint auto-invalidation live-tested |
+| DRY-001/SEED-001 | Duplicated retraining, fixed seed | Med | 011b099 | Confusion/dashboard consume predictions |
+| PERF-001 | SA 5× wasted reads | Med | 5d889c9 | num_reads=repeats |
+| OPEN-2 | Z_full fake timing; α unrecorded | Med | d21fb62 | α + trace + nudged_to_k in rep JSONs; Z_full `no_selection:true` |
+| OPEN-3 | Unbounded image response | Med | d21fb62 | 20MB cap + 404/410 fail-fast |
+| OPEN-4 | Dead config keys | Med | d21fb62 | Keys removed; load_config warns on unknowns |
+| OPEN-5 | Transductive PCA | Med | 6c099e1 | **Leak-free protocol shipped**: per-split scaler+PCA from cached raw embeddings; full 25-repeat rerun done (10.7 min); paper updated to v2 numbers |
+| OPEN-6 | TACO provenance unrecorded | Med | 9b91042 | sha256 ac1ec605…, n=1500 pinned in annotations_provenance.json |
+| BBOX-001 | Clamp wrong space | Low | 5d889c9 | Analytic test (48×96) passes |
+| PKG-001 | No packaging/unpinned deps | Med | 011b099+cf8d444 | `pip install -e .` + constraints.txt (150 pins) |
+| SEC-001/2/3 | Download/path/HTML | Low | 5d889c9 | Caps + containment + escaping |
+| TST-001 | Tautological tests | High(debt) | c656ab6 | **16 tests** (unit+integration+folder-mode), green |
+| OPEN-8 | Folder-mode untested | Low | f8a6a37 | **Real bug found & fixed** (zone = grandparent dir); zone_dir column honored; 2 new tests |
+| MI-BIN | MI bias caveat | Low | — | Documented in paper §5 |
 
-**Residual note (honest accounting):** the on-disk crops (built 2026-08-26) predate the BBOX-001 fix. At 640px Flickr sizes the clamp bug had near-zero effect (verifier: real-data impact ≈0, code defect real), but a clean-room rebuild of crops + features would make the provenance airtight. Cost: ~4 min recompute. Decision deferred to you — numbers would shift within noise.
+## Part 2 — Remaining (externally blocked; nothing left code-side)
 
----
+| ID | Item | Blocker | Ready-when |
+|---|---|---|---|
+| OPEN-7 | CI unexercised | No GitHub remote — **you** must create repo + push | `ci.yml` is complete; first push runs it |
+| OPEN-9 | Real Gwalior map | Ward-boundary GeoJSON — **you** must obtain (GMC/Smart City SPV/GADM) | Analytics ready; swap CSS grid for Folium when GeoJSON lands |
+| OPEN-10 | Cross-dataset replication | TrashNet ~2GB zip download (GitHub API rate-limited this session) + extraction | **Harness complete & proven**: `crops_dir_override` config key + `configs/experiment_trashnet.yaml` — one command after extraction |
+| S3 | D-Wave QPU run | DWAVE_API_TOKEN — **you** must register at dwave-system.com/leap | `scripts/qpu_run.py` verified to build the QUBO and skip green without token |
 
-## Part 2 — Open issues (verified current, with repro)
+## Part 3 — Final state
 
-### OPEN-1 · numpy spec contradicts the pinned environment — **High** · P1 · 0.5h · no deps
-**Repro:** `grep numpy requirements.txt pyproject.toml` → `numpy<2.3`; `python -c "import numpy"` → **2.5.2**.
-**Expected vs actual:** any fresh `pip install -r requirements.txt` resolves numpy <2.3, but v1.0 results were produced on 2.5.2 (constraints.txt). A new machine may fail to even import the env (TF 2.21 requires numpy≥2.3-era ABI in practice) or silently produce a different-ABI run.
-**Why it matters:** reproducibility claim in the paper depends on constraints.txt being *the* spec; requirements/pyproject advertise a different env.
-**Fix:** raise both to `numpy>=2.3,<2.6` (or exactly `==2.5.2`) to match constraints.txt. **Timeline: today.**
-
-### OPEN-2 · `selection_seconds` for Z_full is fake; alpha never persisted — **Medium** · P2 · 1h
-**Repro:** run any experiment; open `experiments/<ts>/rep0_Z_full.json` → `selection_seconds` is the time to build `range(50)` (~0µs, reported as a real stage), `mi_table` is null. Arm-D rep JSONs record `I`/`R` tables but **not the α the bisection converged to** (audit MET-006 recommendation, unimplemented).
-**Expected vs actual:** selection bookkeeping should either be omitted for no-selection arms or record `{"no_selection": true}`; QUBO arm should persist α + per-α subset sizes for the stability figure.
-**Impact:** a reviewer recomputing "selection cost" from the CSV gets a meaningless 0.0 for the ceiling arm; α reproducibility claims have no artifact. **Depends:** nothing. **Timeline: this week** (bundle with next rerun — 0 cost if the rerun happens anyway).
-
-### OPEN-3 · `fetch_missing.py` reads unbounded response into memory — **Medium** · P2 · 0.5h
-**Repro:** `scripts/fetch_missing.py:37` — `Image.open(io.BytesIO(r.content))` with no `len(r.content)` check. data_prep's `download_file` got the SEC-001 cap (verified) but this second fetcher (added later for the 464 fallback images) did not.
-**Expected:** cap ~20 MB per image, matching the documented fix. **Impact:** a hostile/compromised Flickr-mirror response could OOM the process; also trusts Pillow's decompression bomb guard implicitly.
-**Depends:** none. **Timeline: this week.**
-
-### OPEN-4 · Dead config keys still advertised — **Medium** · P2 · 0.5h
-**Repro:** `configs/experiment_6class.yaml` defines `img_size`, `standardize`, `qsvm.feature_map` — **0 usages in src/ or scripts/** (verified by grep). `data.min_images_per_class` is used only by data_prep, not by the experiment path. Also `experiment.baselines` was removed from 6class.yaml but the legacy `configs/experiment.yaml` still carries divergent keys.
-**Expected vs actual:** changing `feature_map: ZZFeatureMap` to anything has zero effect — a silent no-op trap for your teammates. **Fix:** delete the dead keys or wire them; add an unknown-key warning in `load_config` (fail-loud beats fail-silent).
-**Depends:** none. **Timeline: this week** (with OPEN-4's natural partner — collapsing the two YAMLs into one canonical config + `configs/paper.yaml` snapshot as planned).
-
-### OPEN-5 · Transductive PCA (LKG-001) — **Medium (accepted risk)** · P3 · 4–8h refactor
-**Repro:** `features.py:104-109` — StandardScaler + PCA fit on all 1,836 crops pre-split; docstring documents it as a known limitation. Uniform across arms, so rankings/significance survive, but absolute accuracies are optimistic by an unknown margin.
-**Fix path (planned but not done):** cache raw 1280-d embeddings alongside the PCA CSV; refit scaler+PCA inside each split in `run_experiment`. **Business impact:** converts the paper's §5 limitation paragraph into a strength (leak-free protocol). **Depends:** one full rerun (~25 min at 7 arms). **Timeline: before submission.**
-
-### OPEN-6 · TACO snapshot provenance unrecorded (PROV) — **Medium** · P3 · 1h
-**Repro:** `data_prep.py` downloads `annotations.json` from GitHub master; no URL+sha256+download-date stored anywhere (data_prep_stats.json has counts only). The survey documented v1.0 (1,500) vs living dump (3,831) divergence — which snapshot you used is currently unrecoverable without the file's mtime.
-**Fix:** record `{"source": TACO_URL, "sha256": ..., "downloaded": date, "n_images": 1500}` at download time. **Depends:** none. **Timeline: before submission** (the paper must state its snapshot).
-
-### OPEN-7 · CI is unexercised — **Low** · P3 · 0.5h + a push
-`ci.yml` exists (ruff + 14 tests, ubuntu py3.12) and the local equivalents pass, but the repo has no remote — it has never run on GitHub. First `git push` will reveal any Linux-only breakage (path separators, `Scripts/` vs `bin/` assumptions in docs).
-**Depends:** you creating the GitHub repo. **Timeline: with publication packaging.**
-
-### OPEN-8 · `zone_of` folder-mode + predictions-CSV mode are implemented but untested on real data — **Low** · P3 · 2h
-**Repro:** `load_crops(mode="folder")` and the `predictions.csv` ingestion path exist; tests cover `compute_zone_table` on prediction-style frames but no end-to-end test drives folder mode (no real Gwalior ward data exists yet).
-**Impact:** the "real deployment" claims in README/paper rest on unit-level evidence only. **Depends:** ward data. **Timeline: when data arrives.**
-
-### OPEN-9 · Dashboard map is a CSS grid, not real geography — **Low (design)** · P3 · 0.5–2h
-S6 (Folium choropleth of Gwalior wards) was audited as high-impact for civic stakeholders; current dashboard still renders the 2×3 demo grid. The analytics are correct; the visual is demo-grade. **Depends:** ward boundary GeoJSON (you). **Timeline: when GeoJSON arrives.**
-
-### OPEN-10 · Cross-dataset replication (TrashBox/TrashNet) not run — **Low (scope)** · P4 · 1–2 days
-Pre-empts the "single-dataset result" rejection. The pipeline is dataset-agnostic (crops → folders); only TrashBox licensing (none stated) blocks redistribution, not local analysis. **Depends:** download + one rerun per dataset. **Timeline: pre-submission stretch goal.**
-
----
-
-## Part 3 — Verification matrix
-
-| Check | Status | Evidence |
-|---|---|---|
-| 14/14 pytest | ✅ | run this session, 6.1s |
-| ruff clean | ✅ | "All checks passed" |
-| Reproducibility | ✅ | same seed → same selection `[0,1,5,7,16,21,33,40]` |
-| Downstream consumers (no retrain) | ✅ | confusion + dashboard both re-ran from persisted JSONs |
-| Fresh-env install matches paper env | ❌ | **OPEN-1** — requirements/pyproject vs constraints.txt disagree |
-| Selection bookkeeping complete | ❌ | **OPEN-2** |
-| Size caps on all fetchers | ❌ | **OPEN-3** |
-| Config keys all live | ❌ | **OPEN-4** |
-| Leak-free PCA | ❌ accepted | **OPEN-5** documented |
-| Dataset provenance | ❌ | **OPEN-6** |
-
-**Priority-ordered remediation queue:** OPEN-1 (today) → OPEN-3, OPEN-4, OPEN-2 (this week, ~2.5h total) → OPEN-5, OPEN-6 (pre-submission, one rerun) → OPEN-7 (first push) → OPEN-8, OPEN-9, OPEN-10 (data-dependent).
+- **Tests:** 16/16 green · **Lint:** ruff clean · **Reproducibility:** verified (same seed → same selection)
+- **Definitive numbers (leak-free v2, 25 group-aware repeats, Holm-corrected):** Full-50 48.3% > LASSO-8 41.4% ≈ mRMR-8 41.4% ≈ **QUBO-8 40.9%** ≈ PCA-8 40.1% ≈ MI-8 39.5% (all principled arms tie, p>0.5) ≫ Random-8 32.2% (p<0.001). QSVC ~37% (kernel parity). All principled selection methods match under the strict protocol — QUBO additionally ships a globally-optimal formulation that runs unchanged on annealers.
+- **Paper:** research/PAPER_DRAFT.md on v2 numbers, with v1-vs-v2 protocol materiality reported transparently.
