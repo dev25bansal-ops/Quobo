@@ -358,3 +358,53 @@ def test_build_interactive_charts_renders_and_falls_back():
     # zero-total zone must not divide by zero
     zt2 = zt.copy(); zt2.loc[zt2.zone == "Zone A", "total"] = 0
     assert isinstance(PD._build_interactive_charts(zt2), str)
+
+
+# ---------- Enhancement 2: checkpointed embedding extraction (crash resume) ----------
+
+def test_extract_embeddings_checkpoint_resume(tmp_path, monkeypatch):
+    """extract_embeddings with a checkpoint dir resumes: a second call with a
+    pre-existing partial checkpoint skips already-embedded rows."""
+    import cv2
+
+    from src.quobo import features as F
+
+    # two tiny valid crops (load_img just needs decodable images)
+    crops = tmp_path / "crops"
+    for cls in ("a", "b"):
+        d = crops / cls
+        d.mkdir(parents=True)
+        for i in range(3):
+            img = np.full((64, 64, 3), 30 + i * 10, dtype=np.uint8)
+            cv2.imwrite(str(d / f"{i}.jpg"), img)
+
+    # fake model: probe + predict return a fixed 8-d vector per sample;
+    # count samples predicted so we can prove the resume path skips work
+    calls = {"samples": 0}
+    class FakeModel:
+        def predict(self, imgs, verbose=0):
+            calls["samples"] += imgs.shape[0]
+            return np.ones((imgs.shape[0], 8), dtype=np.float32)
+    fake = FakeModel()
+    monkeypatch.setattr(F.tf.keras.utils, "load_img",
+                        lambda p, target_size=(224, 224): np.full((64, 64, 3), 20, dtype=np.uint8))
+
+    ckpt_dir = tmp_path / "ckpt"
+    df1 = F.extract_embeddings(fake, crops, ["a", "b"], checkpoint_dir=ckpt_dir, checkpoint_tag="t")
+    assert df1.shape[0] == 6 and df1.shape[1] == 8 + 2  # 8 emb + label + crop_path
+    first_samples = calls["samples"]  # 1 (probe) + 6 (all rows)
+
+    # simulate a crash after embedding 3 rows: write a partial checkpoint
+    # marking 3 done; the resumed call should only predict the 3 todo rows
+    import numpy as _np
+    paths = list(df1["crop_path"])
+    partial = ckpt_dir / "t.partial.npz"
+    _np.savez_compressed(partial, paths=_np.array(paths),
+                         done=_np.array([True, True, True, False, False, False]),
+                         embs=_np.ones((6, 8), dtype="float32"))
+    calls["samples"] = 0
+    df2 = F.extract_embeddings(fake, crops, ["a", "b"], checkpoint_dir=ckpt_dir, checkpoint_tag="t")
+    # resumed: probe(1) + 3 todo rows = 4 samples < first call's 7
+    assert calls["samples"] < first_samples, (
+        f"expected resume to skip work ({calls['samples']} < {first_samples})")
+    assert df2.shape == df1.shape

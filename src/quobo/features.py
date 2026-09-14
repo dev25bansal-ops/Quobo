@@ -41,7 +41,14 @@ def load_model() -> tf.keras.Model:
     return base
 
 
-def extract_embeddings(model, crops_dir: Path, classes: list[str]) -> pd.DataFrame:
+def extract_embeddings(model, crops_dir: Path, classes: list[str],
+                       checkpoint_dir: Path | None = None,
+                       checkpoint_tag: str | None = None) -> pd.DataFrame:
+    """Extract 1280-d MobileNetV2 embeddings. If checkpoint_dir is given,
+    progress is saved per batch to <checkpoint_dir>/<checkpoint_tag>.partial.npz
+    and a crashed run resumes from the last completed batch (skipping
+    already-embedded paths) instead of restarting. checkpoint_dir=None (default)
+    keeps the original one-shot behavior."""
     paths, labels = [], []
     for cls in classes:
         cls_dir = crops_dir / cls
@@ -55,15 +62,46 @@ def extract_embeddings(model, crops_dir: Path, classes: list[str]) -> pd.DataFra
     # backbones may differ) so any embedding width is supported
     probe = np.zeros((1, 224, 224, 3), dtype=np.float32)
     emb_dim = int(np.asarray(model.predict(probe, verbose=0)).shape[1])
-    embs = np.zeros((len(paths), emb_dim), dtype=np.float32)
+    n = len(paths)
+    embs = np.zeros((n, emb_dim), dtype=np.float32)
+    done = np.zeros(n, dtype=bool)
+
+    # resume from a prior checkpoint if present (crash recovery)
+    ckpt_path = None
+    if checkpoint_dir is not None:
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        ckpt_path = checkpoint_dir / f"{checkpoint_tag or 'default'}.partial.npz"
+        if ckpt_path.exists():
+            with np.load(ckpt_path) as z:
+                if "paths" in z and list(z["paths"]) == paths:
+                    done = z["done"].astype(bool)
+                    n_done = int(done.sum())
+                    if n_done:
+                        embs[:n_done, :] = z["embs"][:n_done, :]
+                    log.info("resuming embeddings: %d/%d already done", n_done, n)
+
     bs = 64
-    for i in tqdm(range(0, len(paths), bs), desc="embeddings"):
+    for i in tqdm(range(0, n, bs), desc="embeddings"):
         chunk = paths[i : i + bs]
+        chunk_idx = np.arange(i, min(i + bs, n))  # clip to n for the last partial batch
+        # skip any rows already embedded (resume path)
+        todo_mask = ~done[chunk_idx]
+        if not todo_mask.any():
+            continue
+        todo_pos = np.where(todo_mask)[0]
+        todo_paths = [chunk[j] for j in todo_pos]
         imgs = np.stack(
-            [tf.keras.utils.load_img(p, target_size=(224, 224)) for p in chunk]
+            [tf.keras.utils.load_img(p, target_size=(224, 224)) for p in todo_paths]
         )
         imgs = tf.keras.applications.mobilenet_v2.preprocess_input(imgs)
-        embs[i : i + bs] = model.predict(imgs, verbose=0)
+        embs[chunk_idx[todo_pos], :] = model.predict(imgs, verbose=0)
+        done[chunk_idx[todo_pos]] = True
+        if ckpt_path is not None and (i // bs) % 2 == 0:
+            np.savez_compressed(ckpt_path, paths=np.array(paths), done=done, embs=embs)
+
+    if ckpt_path is not None:
+        np.savez_compressed(ckpt_path, paths=np.array(paths), done=done, embs=embs)
+        ckpt_path.unlink(missing_ok=True)  # full extraction done; drop the partial
     return pd.DataFrame(embs, columns=[f"e{i}" for i in range(emb_dim)]).assign(
         label=labels, crop_path=paths
     )
@@ -80,6 +118,7 @@ def run_raw_embeddings(cfg: dict) -> pd.DataFrame:
     tag = "raw_" + "_".join(sorted(classes))
     out_npz = ROOT / "data" / "features" / f"{tag}.npz"
     meta_path = ROOT / "data" / "features" / f"{tag}_meta.json"
+    ckpt_dir = ROOT / "data" / "features" / "_checkpoints"
     fp = crops_fingerprint(crops_dir, classes)
 
     if out_npz.exists():
@@ -93,9 +132,12 @@ def run_raw_embeddings(cfg: dict) -> pd.DataFrame:
         except (FileNotFoundError, KeyError, json.JSONDecodeError):
             log.warning("raw cache meta missing — recomputing embeddings")
         out_npz.unlink(missing_ok=True)
+    # a changed crop set invalidates any partial checkpoint for this tag
+    (ckpt_dir / f"{tag}.partial.npz").unlink(missing_ok=True)
 
     model = load_model()
-    df = extract_embeddings(model, crops_dir, classes)
+    df = extract_embeddings(model, crops_dir, classes, checkpoint_dir=ckpt_dir,
+                            checkpoint_tag=tag)
     emb_cols = [c for c in df.columns if c.startswith("e")]
     np.savez_compressed(
         out_npz,
