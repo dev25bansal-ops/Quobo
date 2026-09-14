@@ -39,7 +39,7 @@ def load_config(path: str = "configs/experiment.yaml") -> dict:
         "features": {"backbone", "pca_components"},
         "qsvm": {"reps", "entanglement", "max_train_samples", "test_fraction",
                  "tune_rbf", "max_qsvm_features"},
-        "experiment": {"n_repeats", "arms", "early_stop"},
+        "experiment": {"n_repeats", "arms", "early_stop", "track_mlflow"},
         "selection": {"k"},
         "qubo": {"mi_bins", "sa_sweeps", "sa_repeats", "parallel"},
         "data": {"classes", "min_images_per_class", "crops_dir_override"},

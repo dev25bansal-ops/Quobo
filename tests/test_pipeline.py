@@ -408,3 +408,36 @@ def test_extract_embeddings_checkpoint_resume(tmp_path, monkeypatch):
     assert calls["samples"] < first_samples, (
         f"expected resume to skip work ({calls['samples']} < {first_samples})")
     assert df2.shape == df1.shape
+
+
+# ---------- Enhancement 10: MLflow tracking (opt-in, graceful) ----------
+
+def test_log_to_mlflow_graceful_and_valid(tmp_path):
+    """log_to_mlflow logs when mlflow is present (sqlite store), and degrades
+    to False (never raises) when it is absent."""
+    from src.quobo.run_experiment import log_to_mlflow
+    cfg = {
+        "seed": 42, "data": {"classes": ["a", "b"], "min_images_per_class": 40},
+        "features": {"backbone": "MobileNetV2", "pca_components": 50},
+        "selection": {"k": 8}, "qubo": {"mi_bins": 16, "sa_sweeps": 20000, "sa_repeats": 10},
+        "qsvm": {"reps": 1, "entanglement": "linear", "max_train_samples": 400,
+                 "test_fraction": 0.25, "tune_rbf": True},
+        "experiment": {"n_repeats": 25, "arms": ["A_random", "D_qubo"], "track_mlflow": True},
+    }
+    res = pd.DataFrame([
+        {"repeat": 0, "arm_key": "D_qubo", "arm": "QUBO-8",
+         "classifier": "rbf_svm", "accuracy": 0.40, "macro_f1": 0.38},
+        {"repeat": 0, "arm_key": "A_random", "arm": "Random-8",
+         "classifier": "rbf_svm", "accuracy": 0.32, "macro_f1": 0.30},
+    ])
+    res.to_csv(tmp_path / "results_all.csv", index=False)
+    try:
+        import mlflow  # noqa: F401
+        have_mlflow = True
+    except ImportError:
+        have_mlflow = False
+    result = log_to_mlflow(res, cfg, tmp_path)
+    if have_mlflow:
+        assert result is True
+    else:
+        assert result is False  # graceful degradation, never raises

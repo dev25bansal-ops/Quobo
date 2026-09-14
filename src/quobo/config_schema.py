@@ -79,6 +79,10 @@ class ExperimentConfig(BaseModel):
         default=False,
         description="Enable statistical early stopping"
     )
+    track_mlflow: bool = Field(
+        default=False,
+        description="Log the run to MLflow (local file store; needs the mlflow extra)"
+    )
 
     @field_validator("arms")
     @classmethod

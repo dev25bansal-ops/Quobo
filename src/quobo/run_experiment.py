@@ -43,6 +43,58 @@ def crop_image_group(crop_path: str) -> str:
     return name.rsplit("_ann", 1)[0]
 
 
+def log_to_mlflow(results: pd.DataFrame, cfg: dict, run_dir) -> bool:
+    """Enhancement 10: opt-in MLflow experiment tracking (local file store, no
+    server). Logs config params, per-arm mean/std metrics, and the full
+    results CSV as an artifact so runs are comparable in `mlflow ui`. Returns
+    True on success, False if mlflow is unavailable (degrades gracefully so
+    the experiment never fails on the tracking extra)."""
+    try:
+        import mlflow
+    except ImportError:
+        log.warning("mlflow not installed — skipping experiment tracking "
+                    "(pip install mlflow)")
+        return False
+    try:
+        # MLflow 3.x: the plain ./mlruns file backend is in maintenance mode and
+        # raises; the supported serverless option is a local SQLite store
+        # (mlflow auto-initializes its schema on first use).
+        import os
+        import tempfile
+
+        db = os.path.join(tempfile.gettempdir(), "quobo_mlruns.sqlite")
+        mlflow.set_tracking_uri(f"sqlite:///{db}")
+        mlflow.set_experiment("quobo-feature-selection")
+        with mlflow.start_run(run_name=f"{run_dir.name}"):
+            mlflow.log_params({
+                "seed": cfg["seed"],
+                "selection.k": cfg["selection"]["k"],
+                "features.pca_components": cfg["features"]["pca_components"],
+                "qubo.mi_bins": cfg["qubo"]["mi_bins"],
+                "qubo.sa_sweeps": cfg["qubo"]["sa_sweeps"],
+                "qubo.sa_repeats": cfg["qubo"]["sa_repeats"],
+                "qubo.parallel": cfg["qubo"].get("parallel", False),
+                "qsvm.reps": cfg["qsvm"]["reps"],
+                "qsvm.max_train_samples": cfg["qsvm"]["max_train_samples"],
+                "qsvm.test_fraction": cfg["qsvm"]["test_fraction"],
+                "experiment.n_repeats": cfg["experiment"]["n_repeats"],
+                "experiment.arms": ",".join(cfg["experiment"]["arms"]),
+                "data.classes": ",".join(cfg["data"]["classes"]),
+            })
+            agg = results.groupby(["arm", "classifier"])[["accuracy", "macro_f1"]].mean()
+            for (arm, clf), row in agg.iterrows():
+                mlflow.log_metric(f"accuracy_{arm}__{clf}", round(float(row["accuracy"]), 4))
+                mlflow.log_metric(f"macro_f1_{arm}__{clf}", round(float(row["macro_f1"]), 4))
+            mlflow.log_artifact(str(run_dir / "results_all.csv"))
+            active = mlflow.active_run()
+            run_id = active.info.run_id if active else "?"
+            log.info("mlflow run logged (run_id=%s, sqlite store)", run_id)
+        return True
+    except Exception as e:  # noqa: BLE001 — tracking must never sink the experiment
+        log.warning("mlflow tracking failed (continuing): %s: %s", type(e).__name__, str(e)[:120])
+        return False
+
+
 def run(cfg: dict) -> pd.DataFrame:
     t_start = time.perf_counter()
     # fail fast on malformed config (Enhancement 1): validate the full schema
@@ -161,6 +213,10 @@ def run(cfg: dict) -> pd.DataFrame:
         )
         log.info("significance: %d comparisons written", len(sig_rows))
 
+    # Enhancement 10: opt-in MLflow tracking (file store; degrades gracefully)
+    if cfg.get("experiment", {}).get("track_mlflow", False):
+        log_to_mlflow(results, cfg, run_dir)
+
     log.info("total wall time: %.1f min", (time.perf_counter() - t_start) / 60)
     return results
 
@@ -237,6 +293,11 @@ def paired_significance(results: pd.DataFrame) -> list[dict]:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
-    cfg = load_config(sys.argv[1] if len(sys.argv) > 1 else "configs/experiment.yaml")
+    args = sys.argv[1:]
+    track = "--track" in args
+    pos = [a for a in args if not a.startswith("--")]
+    cfg = load_config(pos[0] if pos else "configs/experiment.yaml")
+    if track:
+        cfg.setdefault("experiment", {})["track_mlflow"] = True
     res = run(cfg)
     print(res.groupby(["arm", "classifier"])[["accuracy", "macro_f1"]].mean().round(4))

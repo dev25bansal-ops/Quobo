@@ -28,6 +28,7 @@ dependencies = [
 full = ["tensorflow~=2.19", "qiskit-aer~=0.17"]   # heavy: backbone embeddings, optional on CI
 edge = ["onnxruntime", "skl2onnx", "tf2onnx"]    # ONNX export for edge inference (Enhancement 8)
 dashboard = ["plotly>=5"]                        # interactive charts (Enhancement 5)
+track = ["mlflow>=3"]                            # experiment tracking (Enhancement 10)
 dev = ["pytest>=8", "ruff", "hypothesis>=6"]
 
 [tool.setuptools.packages.find]
