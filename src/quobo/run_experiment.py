@@ -1,11 +1,13 @@
 """Experiment orchestrator: runs the full A-D ablation.
 
-For each of n_repeats seeds:
-  GROUP-aware split (no photo's crops straddle train/test) -> each arm selects
-  k features -> train QSVM + RBF-SVM on those k columns -> record metrics,
-  selected features, held-out labels, and per-classifier predictions.
-Outputs: experiments/<timestamp>/results_all.csv + summary + significance
-(+ per-rep JSONs consumed by confusion_analysis / pollution_dashboard).
+For each of n_repeats seeds, a group-aware split is made (no photo's crops
+straddle train/test), then each arm selects k features, trains QSVM + RBF-SVM
+on those k columns, and records metrics, selected features, held-out labels,
+and per-classifier predictions.
+
+Outputs (under ``experiments/<timestamp>/``): ``results_all.csv``, the summary
+CSV + significance CSV under ``results/tables/``, and per-rep JSONs consumed by
+``confusion_analysis`` / ``pollution_dashboard``.
 """
 import json
 import logging

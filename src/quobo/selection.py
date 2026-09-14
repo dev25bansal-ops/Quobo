@@ -2,19 +2,21 @@
 50-column PCA pool, so arms A-D are directly comparable.
 
 Arms:
-  A_random : uniform k-subset (repeated, seed per split)
-  B_pca    : first k principal components (largest variance)
-  C_mi     : top-k by mutual information I(feature; label)  [classical baseline]
-  D_qubo   : Muecke QFS formulation (arXiv:2203.13261):
-               minimize Q(x,a) = -a * sum_i I_i x_i + (1-a) * sum_ij R_ij x_i x_j
-             where I_i = MI(feature_i, label), R_ij = MI(feature_i, feature_j),
-             alpha binary-searched so the optimum has EXACTLY k features.
-             Solved with simulated annealing (dwave-samplers; QPU optional later).
+
+- ``A_random``: uniform k-subset (repeated, seed per split)
+- ``B_pca``: first k principal components (largest variance)
+- ``C_mi``: top-k by mutual information MI(feature, label) [classical baseline]
+- ``D_qubo``: Muecke QFS formulation (arXiv:2203.13261). Minimize
+  Q = -alpha * sum of importance_i * x_i + (1-alpha) * sum of R_ij * x_i * x_j,
+  where importance_i = MI(feature_i, label) and R_ij = MI(feature_i, feature_j);
+  alpha is binary-searched so the optimum has EXACTLY k features. Solved with
+  simulated annealing (dwave-samplers; QPU optional later).
 
 Design notes from the research report:
-  - MI estimated on quantile bins (mi_bins=16) for stability.
-  - R_ij uses |MI| on the same bins; diagonal of R excluded.
-  - The alpha-sweep guarantees exactly-k selection (no soft-constraint leakage).
+
+- MI is estimated on quantile bins (mi_bins=16) for stability.
+- R_ij uses absolute MI on the same bins; the diagonal of R is excluded.
+- The alpha-sweep guarantees exactly-k selection (no soft-constraint leakage).
 """
 from __future__ import annotations
 
@@ -183,7 +185,7 @@ def select_qubo(
 def select_lasso(X, y, k, seed=None):
     """Arm E: L1-regularized logistic regression selection — the cheap convex
     baseline reviewers will ask for (Huang 2021 objection). Features ranked
-    by mean |coefficient| across one-vs-rest fits; C chosen by CV.
+    by mean absolute coefficient across one-vs-rest fits; C chosen by CV.
 
     n_jobs=-1 parallelizes the (classes x Cs x cv) fits. This is the single
     biggest per-repeat cost in the pipeline (~100s serial); parallelizing
