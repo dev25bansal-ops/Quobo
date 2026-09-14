@@ -169,6 +169,48 @@ def compute_zone_table(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _build_interactive_charts(zt: pd.DataFrame) -> str:
+    """Enhancement 5: two interactive Plotly charts (hover + zoom) — PSI bar
+    with band colors, and a 100%-stacked class-composition chart. Falls back
+    to an empty string if plotly isn't installed (keeps the static dashboard
+    working without the dep)."""
+    try:
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+    except ImportError:
+        log.warning("plotly not installed — skipping interactive charts")
+        return ""
+
+    fig = make_subplots(
+        rows=1, cols=2,
+        subplot_titles=("PSI by zone", "Class composition (% of zone total)"),
+        horizontal_spacing=0.12,
+    )
+    # PSI bar, colored by band
+    fig.add_trace(
+        go.Bar(
+            x=zt["zone"], y=zt["psi"],
+            marker_color=[BAND_COLORS[b] for b in zt["band"]],
+            hovertemplate="%{x}<br>PSI: %{y}<br>%{customdata}<extra></extra>",
+            customdata=zt["band"],
+        ), row=1, col=1,
+    )
+    # 100% stacked class composition
+    for cls in HAZARD_W:
+        frac = (zt[cls] / zt["total"].replace(0, np.nan) * 100).fillna(0)
+        fig.add_trace(
+            go.Bar(
+                x=zt["zone"], y=frac, name=cls,
+                hovertemplate="%{x} · %{fullData.name}: %{y:.1f}%<extra></extra>",
+            ), row=1, col=2,
+        )
+    fig.update_yaxes(title_text="PSI", row=1, col=1)
+    fig.update_yaxes(title_text="%", range=[0, 100], row=1, col=2)
+    fig.update_layout(height=440, margin={"l": 40, "r": 20, "t": 50, "b": 40},
+                      legend={"orientation": "h", "y": -0.2})
+    return fig.to_html(full_html=False, include_plotlyjs="cdn")
+
+
 def render_dashboard(zt: pd.DataFrame, out_html: Path, truth_mode: bool = False) -> None:
     total_all = zt["total"].sum()
     clean_all = zt["clean"].sum()
@@ -204,6 +246,9 @@ def render_dashboard(zt: pd.DataFrame, out_html: Path, truth_mode: bool = False)
     for _, r in zt.iterrows():
         cells += (f'<div class="map-cell" style="background:{BAND_COLORS[r["band"]]}">'
                   f'<b>{_html.escape(str(r["zone"]))}</b><span>PSI {r["psi"]}</span></div>')
+
+    # Enhancement 5: interactive Plotly charts (hover + zoom)
+    interactive = _build_interactive_charts(zt)
 
     html = f'''<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
@@ -247,6 +292,7 @@ def render_dashboard(zt: pd.DataFrame, out_html: Path, truth_mode: bool = False)
 <div class="grid">{zone_cards}</div>
 <h3 style="padding:0 32px">Zone map (PSI)</h3>
 <div class="map">{cells}</div>
+{interactive}
 <div class="note"><b>Method.</b> Cleanliness score = clean count / total waste count × 100 (project definition).
 PSI = max hazard-weighted class sub-index on a 0–500 scale (dominant-pollutant rule as in US EPA AQI / Singapore PSI /
 India CPCB NAQI): sub-index<sub>c</sub> = count<sub>c</sub> × weight<sub>c</sub> / max over all zones and classes of

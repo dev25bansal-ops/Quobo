@@ -335,3 +335,26 @@ def test_onnx_pipeline_parity(tmp_path):
     sk_label = rbf.predict(X50[:, sel])
     agree = (np.asarray(onnx_label) == sk_label).mean()
     assert agree >= 0.999
+
+
+# ---------- Enhancement 5: interactive dashboard ----------
+
+def test_build_interactive_charts_renders_and_falls_back():
+    """Interactive chart builder renders plotly HTML when available, else ''."""
+    import scripts.pollution_dashboard as PD
+    zt = pd.DataFrame([
+        {"zone": "Zone A", "total": 100, "clean": 80, "dirty": 20,
+         "cleanliness": 80.0, "psi": 300, "band": "Unhealthy",
+         "cigarette": 20, "bottle": 40, "can": 20, "carton": 10, "cup": 5, "lid": 5},
+        {"zone": "Zone B", "total": 50, "clean": 30, "dirty": 20,
+         "cleanliness": 60.0, "psi": 500, "band": "Hazardous",
+         "cigarette": 20, "bottle": 20, "can": 0, "carton": 0, "cup": 0, "lid": 10},
+    ])
+    html = PD._build_interactive_charts(zt)
+    # if plotly installed: non-empty with both subplot titles; else graceful ''
+    assert isinstance(html, str)
+    if html:
+        assert "PSI by zone" in html and "Class composition" in html
+    # zero-total zone must not divide by zero
+    zt2 = zt.copy(); zt2.loc[zt2.zone == "Zone A", "total"] = 0
+    assert isinstance(PD._build_interactive_charts(zt2), str)
