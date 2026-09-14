@@ -41,7 +41,7 @@ def load_config(path: str = "configs/experiment.yaml") -> dict:
                  "tune_rbf", "max_qsvm_features"},
         "experiment": {"n_repeats", "arms", "early_stop"},
         "selection": {"k"},
-        "qubo": {"mi_bins", "sa_sweeps", "sa_repeats"},
+        "qubo": {"mi_bins", "sa_sweeps", "sa_repeats", "parallel"},
         "data": {"classes", "min_images_per_class", "crops_dir_override"},
     }
     for section, keys in known_subkeys.items():

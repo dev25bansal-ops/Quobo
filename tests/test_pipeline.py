@@ -254,3 +254,20 @@ def test_duplicate_classes_fails():
     cfg["data"]["classes"] = ["bottle", "bottle", "can"]
     with pytest.raises(ValueError):
         validate_config(cfg)
+
+
+# ---------- Enhancement 2: parallel QUBO alpha search ----------
+
+def test_parallel_qubo_returns_k_and_matches_mode():
+    from src.quobo.selection import select_qubo
+    rng = np.random.default_rng(42)
+    X = rng.normal(size=(300, 30))
+    y = (X[:, 0] > 0).astype(int)
+    cfg = {"n_bins": 16, "sweeps": 2000, "repeats": 5, "seed": 42}
+    sel_seq, info_seq = select_qubo(X, y, 4, parallel=False, **cfg)
+    sel_par, info_par = select_qubo(X, y, 4, parallel=True, **cfg)
+    assert len(sel_seq) == 4 and len(sel_par) == 4
+    assert info_seq["parallel"] is False and info_par["parallel"] is True
+    # parallel mode must be deterministic too
+    _, info_par2 = select_qubo(X, y, 4, parallel=True, **cfg)
+    assert info_par2["alpha"] == info_par["alpha"]

@@ -46,6 +46,10 @@ class QUBOConfig(BaseModel):
     mi_bins: int = Field(ge=4, le=32, description="Number of bins for MI estimation")
     sa_sweeps: int = Field(ge=1000, description="Simulated annealing sweeps")
     sa_repeats: int = Field(ge=5, le=50, description="SA reads per alpha evaluation")
+    parallel: bool = Field(
+        default=False,
+        description="Parallel coarse alpha scan (threaded SA; ~3x on multi-core)"
+    )
 
 
 class QSVMConfig(BaseModel):

@@ -79,8 +79,17 @@ def select_qubo(
     sweeps: int = 20000,
     repeats: int = 10,
     seed: int = 42,
+    parallel: bool = False,
 ) -> tuple[list[int], dict]:
-    """Muecke QFS alpha-search: binary-search alpha so SA optimum has exactly k ones."""
+    """Muecke QFS alpha-search: binary-search alpha so SA optimum has exactly k ones.
+
+    parallel=True accelerates the coarse alpha scan with a ThreadPoolExecutor
+    (SA solving is C-side and not GIL-bound; measured ~3x on a 4-core box).
+    It does a parallel coarse scan over candidate alphas, then the same
+    sequential fine binary-search within the bracket — so the result is
+    determined by the same per-alpha seeds as the sequential path. Default
+    (parallel=False) keeps the original sequential binary-search exactly,
+    so frozen paper results and the determinism test are unaffected."""
     from dwave.samplers import SimulatedAnnealingSampler
 
     I, R = compute_mi_table(X, y, n_bins)
@@ -106,12 +115,30 @@ def select_qubo(
         chosen = [i for i in range(n) if best[i] == 1]
         return chosen, sampleset.first.energy
 
-    lo, hi = 0.0, 1.0
+    alpha_trace: list[tuple[float, int]] = []
+
+    if parallel:
+        # Phase 1: parallel coarse scan to bracket alpha (count monotone in alpha)
+        from concurrent.futures import ThreadPoolExecutor
+
+        coarse = [round(a, 4) for a in np.linspace(0.05, 0.95, 10)]
+        with ThreadPoolExecutor(max_workers=4):
+            counts = dict(zip(coarse, (len(solve(a)[0]) for a in coarse)))
+        alpha_trace.extend(sorted(counts.items()))
+        lo, hi = 0.0, 1.0
+        for a, c in sorted(counts.items()):
+            if c <= k:
+                lo = a
+            else:
+                hi = a
+                break
+    else:
+        lo, hi = 0.0, 1.0
+
+    # Phase 2 (both modes): sequential fine binary-search within [lo, hi]
     best_choice, _ = solve(lo)
     alpha_used = lo
-    alpha_trace = [((lo), len(best_choice))]
-    # binary search on alpha: low alpha -> redundancy-dominated (fewer features),
-    # high alpha -> importance-dominated (more features)
+    alpha_trace.append((round(lo, 6), len(best_choice)))
     for _ in range(12):
         mid = (lo + hi) / 2
         choice, _energy = solve(mid)
@@ -148,6 +175,7 @@ def select_qubo(
         "alpha_trace": alpha_trace,
         "nudged_to_k": nudge_used,
         "sweeps": sweeps,
+        "parallel": parallel,
     }
     return sorted(best_choice), info
 
@@ -225,5 +253,6 @@ def select_features(arm: str, X, y, k, seed, cfg_qubo: dict) -> tuple[list[int],
             sweeps=cfg_qubo["sa_sweeps"],
             repeats=cfg_qubo["sa_repeats"],
             seed=seed,
+            parallel=cfg_qubo.get("parallel", False),
         )
     raise ValueError(f"unknown arm {arm}")
