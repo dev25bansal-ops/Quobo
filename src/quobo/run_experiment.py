@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import GroupShuffleSplit
 
-from .config import ROOT, load_config
+from .config import ROOT, load_config, validate_config
 from .features import fit_pca_on_train, run_raw_embeddings
 from .qsvm import run_all_classifiers
 from .selection import select_features
@@ -45,6 +45,9 @@ def crop_image_group(crop_path: str) -> str:
 
 def run(cfg: dict) -> pd.DataFrame:
     t_start = time.perf_counter()
+    # fail fast on malformed config (Enhancement 1): validate the full schema
+    # before any expensive work, not at rep 12
+    validate_config(cfg)
     # OPEN-5 leak-free protocol: raw embeddings cached once (backbone is
     # deterministic per crop), then scaler+PCA refit INSIDE each split on
     # train rows only. PCA rotation no longer sees held-out data.

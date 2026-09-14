@@ -1,7 +1,13 @@
+from __future__ import annotations
+
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
+
+if TYPE_CHECKING:
+    from .config_schema import QuoboConfig
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -33,7 +39,7 @@ def load_config(path: str = "configs/experiment.yaml") -> dict:
         "features": {"backbone", "pca_components"},
         "qsvm": {"reps", "entanglement", "max_train_samples", "test_fraction",
                  "tune_rbf", "max_qsvm_features"},
-        "experiment": {"n_repeats", "arms"},
+        "experiment": {"n_repeats", "arms", "early_stop"},
         "selection": {"k"},
         "qubo": {"mi_bins", "sa_sweeps", "sa_repeats"},
         "data": {"classes", "min_images_per_class", "crops_dir_override"},
@@ -45,6 +51,18 @@ def load_config(path: str = "configs/experiment.yaml") -> dict:
                 log.warning("config %s: %s has dead keys (never read by code): %s",
                             path, section, sorted(dead))
     return cfg
+
+
+def validate_config(cfg: dict) -> QuoboConfig:
+    """Enforce the full schema (config_schema.QuoboConfig). Raises ValueError
+    with a readable message on malformed keys / out-of-range values / bad arm
+    names. Call this at the top of any long run to fail fast, not at rep 12."""
+    from .config_schema import QuoboConfig
+
+    try:
+        return QuoboConfig.model_validate(cfg)
+    except Exception as e:  # pydantic.ValidationError
+        raise ValueError(f"invalid experiment config: {e}") from e
 
 
 def ensure_dirs(cfg: dict) -> dict:
