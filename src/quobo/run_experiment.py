@@ -130,6 +130,14 @@ def run(cfg: dict) -> pd.DataFrame:
                                                  "n_features_candidate")},
                 }, f, indent=1)
 
+        # Enhancement 3: incremental write (crash recovery) + early stopping
+        pd.DataFrame(rows).to_csv(run_dir / "results_interim.csv", index=False)
+        if cfg["experiment"].get("early_stop", False) and rep >= 9:
+            stop_reason = should_stop_early(rows, run_dir)
+            if stop_reason:
+                log.info("EARLY STOP after rep %d: %s", rep, stop_reason)
+                break
+
     results = pd.DataFrame(rows)
     results.to_csv(run_dir / "results_all.csv", index=False)
 
@@ -155,6 +163,28 @@ def run(cfg: dict) -> pd.DataFrame:
 
     log.info("total wall time: %.1f min", (time.perf_counter() - t_start) / 60)
     return results
+
+
+def should_stop_early(rows: list, run_dir, min_reps: int = 10, window: int = 5,
+                      tol: float = 0.01) -> str | None:
+    """Stop if the per-repeat QUBO-8 RBF accuracy has been flat within tol for
+    `window` consecutive repeats (result has converged). Returns a reason
+    string to log, or None to continue. Conservative: requires min_reps and a
+    full stable window, so it never cuts a still-moving experiment short."""
+    if len(rows) < min_reps * len({r["arm_key"] for r in rows}):
+        return None
+    df = pd.DataFrame(rows)
+    sub = df[(df.arm_key == "D_qubo") & (df.classifier == "rbf_svm")]
+    if len(sub) < min_reps:
+        return None
+    accs = sub.sort_values("repeat")["accuracy"].tolist()
+    if len(accs) < window:
+        return None
+    last = accs[-window:]
+    if max(last) - min(last) <= tol:
+        return (f"QUBO-8 rbf accuracy flat within {tol:.3f} for {window} "
+                f"repeats (last {last[-1]:.4f})")
+    return None
 
 
 def paired_significance(results: pd.DataFrame) -> list[dict]:

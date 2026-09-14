@@ -271,3 +271,28 @@ def test_parallel_qubo_returns_k_and_matches_mode():
     # parallel mode must be deterministic too
     _, info_par2 = select_qubo(X, y, 4, parallel=True, **cfg)
     assert info_par2["alpha"] == info_par["alpha"]
+
+
+# ---------- Enhancement 3: early stopping ----------
+
+def test_should_stop_early_flat():
+    from src.quobo.run_experiment import should_stop_early
+    rows = []
+    for rep in range(15):
+        rows.append({"repeat": rep, "arm_key": "D_qubo", "classifier": "rbf_svm",
+                     "accuracy": 0.41 + (rep % 2) * 0.001})  # flat within 0.001
+    assert should_stop_early(rows, None, min_reps=10, window=5, tol=0.01) is not None
+
+def test_should_stop_early_not_flat():
+    from src.quobo.run_experiment import should_stop_early
+    rows = []
+    for rep in range(15):
+        rows.append({"repeat": rep, "arm_key": "D_qubo", "classifier": "rbf_svm",
+                     "accuracy": 0.30 + rep * 0.01})  # clearly rising
+    assert should_stop_early(rows, None, min_reps=10, window=5, tol=0.01) is None
+
+def test_should_stop_early_needs_min_reps():
+    from src.quobo.run_experiment import should_stop_early
+    rows = [{"repeat": rep, "arm_key": "D_qubo", "classifier": "rbf_svm",
+             "accuracy": 0.41} for rep in range(5)]  # < min_reps
+    assert should_stop_early(rows, None, min_reps=10, window=5, tol=0.01) is None
