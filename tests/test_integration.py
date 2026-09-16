@@ -32,6 +32,7 @@ def synthetic_crops(tmp_path_factory):
     return root, list(classes)
 
 
+@pytest.mark.integration
 def test_end_to_end_pipeline(synthetic_crops, monkeypatch, tmp_path):
     crops_dir, classes = synthetic_crops
 

@@ -1,0 +1,19 @@
+# Pre-commit: ruff lint+format, and a fast pytest gate (integration tests are
+# marked and skipped here so commits stay <30s). Full suite runs in CI.
+# Install once:  pip install pre-commit && pre-commit install
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: pytest-quick
+        name: pytest (unit + property, no integration)
+        entry: python -m pytest -m "not integration" -q --no-header -p no:cacheprovider
+        language: system
+        pass_filenames: false
+        types: [python]

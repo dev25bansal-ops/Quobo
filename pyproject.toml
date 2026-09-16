@@ -36,6 +36,9 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "integration: end-to-end pipeline test (real TF model, no weight download); skipped by pre-commit, run in CI",
+]
 
 [tool.ruff]
 line-length = 100

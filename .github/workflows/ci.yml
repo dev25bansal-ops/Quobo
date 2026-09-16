@@ -22,12 +22,20 @@ jobs:
           pip install -e ".[dev]" --no-deps
           pip install "qiskit~=2.1" "qiskit-machine-learning~=0.9.0" \
                       "dimod>=0.12.22" "dwave-samplers>=1.8.0" \
-                      "scikit-learn>=1.5,<2" "numpy<2.3" pandas scipy \
+                      "scikit-learn>=1.5,<2" "numpy>=2.3,<2.6" pandas scipy \
                       opencv-python-headless pillow matplotlib pyyaml requests tqdm \
                       "tensorflow-cpu~=2.19"
 
       - name: Ruff (lint)
         run: ruff check src/ scripts/ tests/
+
+      - name: pip-audit (dependency security)
+        # advisory for now: report findings but don't fail the build, so a new
+        # CVE in a transitive dep doesn't block unrelated PRs. Promote to
+        # --strict once the report is clean (local run 2026-09-16: clean).
+        run: |
+          pip install pip-audit
+          pip-audit --progress-spinner off || echo "::warning::pip-audit found advisories (non-blocking)"
 
       - name: Pytest (unit + integration)
         run: pytest tests/ -v --tb=short -q

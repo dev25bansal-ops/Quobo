@@ -39,3 +39,5 @@ experiment7arm_log.txt
 *.egg-info/
 experiment_leakfree_log.txt
 docs/_build/
+mlruns/
+results/onnx/__pycache__/
