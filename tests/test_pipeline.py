@@ -441,3 +441,48 @@ def test_log_to_mlflow_graceful_and_valid(tmp_path):
         assert result is True
     else:
         assert result is False  # graceful degradation, never raises
+
+
+# ---------- A1: uncertainty-aware PSI (Wilson intervals + vote agreement) ----------
+
+def test_wilson_interval_known_values():
+    from src.quobo.uncertainty import wilson_interval
+    # 8/10, z=1.96: hand-verified Wilson bounds (lo=(0.9921-0.3136)/1.3842,
+    # hi=(0.9921+0.3136)/1.3842)
+    lo, hi = wilson_interval(8, 10)
+    assert 0.49 < lo < 0.50 and 0.94 < hi < 0.95
+    # degenerate cases stay in [0,1] and never NaN
+    assert wilson_interval(0, 5) == (0.0, 0.0)
+    lo1, hi1 = wilson_interval(5, 5)
+    assert lo1 == pytest.approx(1.0) and hi1 == pytest.approx(1.0)
+    assert wilson_interval(3, 0) == (0.0, 0.0)  # n=0 guard
+
+def test_wilson_interval_narrows_with_n():
+    from src.quobo.uncertainty import wilson_interval
+    lo_small, hi_small = wilson_interval(5, 10)
+    lo_big, hi_big = wilson_interval(50, 100)
+    # same proportion, 10x the evidence -> strictly narrower interval
+    assert (hi_big - lo_big) < (hi_small - lo_small)
+
+def test_vote_agreement():
+    from src.quobo.uncertainty import vote_agreement
+    assert vote_agreement([]) == 0.0
+    # unanimous (1.0) + 13/25 split (0.52) -> mean 0.76
+    assert vote_agreement([{"cigarette": 25}, {"cup": 13, "lid": 12}]) == pytest.approx(0.76)
+    # zero-vote crops are skipped, not counted as 0
+    assert vote_agreement([{}, {"bottle": 4}]) == pytest.approx(1.0)
+
+def test_zone_table_has_uncertainty_columns():
+    # ground-truth frame (no votes) still renders, CI columns present
+    df = pd.DataFrame([
+        {"crop_path": "batch_1_001.jpg", "class": "cigarette"},
+        {"crop_path": "batch_1_002.jpg", "class": "bottle"},
+    ])
+    zt = compute_zone_table(df)
+    assert "psi_ci" in zt.columns and "vote_agreement" in zt.columns
+    assert zt["vote_agreement"].isna().all()  # no vote data -> honest None
+    # CI must bracket the point estimate when dirty>0
+    row = zt.iloc[0]
+    lo = int(row["psi_ci"].strip("[]").split("-")[0])
+    hi = int(row["psi_ci"].strip("[]").split("-")[1])
+    assert lo <= row["psi"] <= hi

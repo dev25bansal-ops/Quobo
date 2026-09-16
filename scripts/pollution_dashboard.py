@@ -124,7 +124,10 @@ def load_predictions(clf: str = "rbf_svm", arm: str = "D_qubo") -> pd.DataFrame:
         for i, p in zip(idx_te, pred):
             votes[df["crop_path"].values[i]][p] += 1
 
-    rows = [{"crop_path": cp, "class": c.most_common(1)[0][0], "file": Path(cp).name}
+    rows = [{"crop_path": cp, "class": c.most_common(1)[0][0], "file": Path(cp).name,
+             # A1: per-crop vote dict — the uncertainty layer (agreement =
+             # majority/total across the 25 repeats)
+             "votes": dict(c)}
             for cp, c in votes.items()]
     out = pd.DataFrame(rows)
     log.info("prediction mode: %d crops voted from %d %s/%s reps (%.0f%% coverage)",
@@ -134,11 +137,15 @@ def load_predictions(clf: str = "rbf_svm", arm: str = "D_qubo") -> pd.DataFrame:
 
 def compute_zone_table(df: pd.DataFrame) -> pd.DataFrame:
     counts = defaultdict(Counter)
+    # A1: accumulate per-crop vote dicts per zone for the uncertainty layer
+    zone_votes = defaultdict(list)
     for _, r in df.iterrows():
         # folder-mode rows carry their zone directly; otherwise fall back to
         # the filename heuristic (demo batch mapping)
         z = r.get("zone_dir") or zone_of(r["crop_path"])
         counts[z][r["class"]] += 1
+        if isinstance(r.get("votes"), dict) and r["votes"]:
+            zone_votes[z].append(r["votes"])
 
     # global max of the hazard-weighted class sub-index across all zones —
     # the reference point that maps the worst (zone, class) cell to 500
@@ -160,10 +167,32 @@ def compute_zone_table(df: pd.DataFrame) -> pd.DataFrame:
                for k2 in HAZARD_W}
         psi = max(min(500, round(max(sub.values()))), 0)
         band = next(b for t, b in PSI_BANDS if psi <= t)
+
+        # A1: Wilson interval on the dirty rate (the PSI driver) + vote
+        # agreement. The interval bounds the underlying true dirty fraction,
+        # so a zone's label is honest about how much evidence supports it.
+        from src.quobo.uncertainty import vote_agreement, wilson_interval
+        dirty_lo, dirty_hi = wilson_interval(dirty, total)
+        # conservative PSI bounds: rescale the dominant sub-index by the
+        # interval bounds of the dirty fraction (both are linear in counts
+        # when one class dominates, which is the case for all current zones)
+        dom = max(sub.values())
+        if total > 0 and dom > 0:
+            psi_lo = int(round(dom * dirty_lo / (dirty / total)))
+            psi_hi = int(round(dom * dirty_hi / (dirty / total)))
+        else:
+            psi_lo = psi_hi = psi
+        psi_lo, psi_hi = max(0, psi_lo), min(500, psi_hi)
+        agreement = vote_agreement(zone_votes.get(z, [])) if zone_votes.get(z) else None
+
         rows.append({
             "zone": z, "total": total, "clean": clean, "dirty": dirty,
             "cleanliness": round(clean / total * 100, 1),
             "psi": psi, "band": band,
+            "psi_ci": f"[{psi_lo}-{psi_hi}]",
+            "dirty_rate_lo": round(dirty_lo, 3),
+            "dirty_rate_hi": round(dirty_hi, 3),
+            "vote_agreement": round(agreement, 3) if agreement is not None else None,
             **{k2: c.get(k2, 0) for k2 in HAZARD_W},
         })
     return pd.DataFrame(rows)
@@ -235,9 +264,9 @@ def render_dashboard(zt: pd.DataFrame, out_html: Path, truth_mode: bool = False)
         zone_cards += f'''
       <div class="card" style="border-top:6px solid {color}">
         <div class="zone-head"><span class="zone-name">{_html.escape(str(r["zone"]))}</span>
-          <span class="badge" style="background:{color}">{_html.escape(str(r["band"]))} · PSI {r["psi"]}</span></div>
+          <span class="badge" style="background:{color}">{_html.escape(str(r["band"]))} · PSI {r["psi"]} {_html.escape(str(r["psi_ci"]))}</span></div>
         <div class="big-stat">Cleanliness <b>{r["cleanliness"]}%</b></div>
-        <div class="sub-stat">{r["clean"]} clean / {r["dirty"]} litter · {r["total"]} items</div>
+        <div class="sub-stat">{r["clean"]} clean / {r["dirty"]} litter · {r["total"]} items{"" if r.get("vote_agreement") is None else f" · vote agreement {r['vote_agreement']:.0%}"}</div>
         {bars}
       </div>'''
 
@@ -297,6 +326,10 @@ def render_dashboard(zt: pd.DataFrame, out_html: Path, truth_mode: bool = False)
 PSI = max hazard-weighted class sub-index on a 0–500 scale (dominant-pollutant rule as in US EPA AQI / Singapore PSI /
 India CPCB NAQI): sub-index<sub>c</sub> = count<sub>c</sub> × weight<sub>c</sub> / max over all zones and classes of
 (count × weight) × 500; weights: cigarette ×3, bottle/can ×1, carton/cup ×0.8, lid ×0.5.
+PSI values carry <b>Wilson 95% intervals</b> on the zone's litter rate (A1): the interval is
+derived from the 25-repeat vote distribution per crop, so a zone's band reflects how much
+classifier evidence supports it, not just a point estimate. "Vote agreement" = mean fraction
+of repeats concurring with each crop's majority label.
 Zone assignment is a <b>demo mapping</b> of TACO image batches — TACO carries no GPS metadata. For a real Gwalior
 deployment, place zone-labeled crops under data/geo/&lt;Zone&gt;/ and rerun; the analytics are unchanged.</div>
 </body></html>'''
