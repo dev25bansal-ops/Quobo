@@ -13,7 +13,9 @@ taco_annotations_unofficial.json
 # experiment outputs & logs
 experiments/
 results/
+outputs/
 *.log
+experiment_final_e2e_log.txt
 confusion_log.txt
 data_prep_log.txt
 experiment_log.txt
@@ -41,3 +43,18 @@ experiment_leakfree_log.txt
 docs/_build/
 mlruns/
 results/onnx/__pycache__/
+
+# dashboard web UI (npm build artifacts & deps)
+dashboard-ui/node_modules/
+dashboard-ui/dist/
+dashboard-ui/.npm-install.log
+
+# temp pytest basetemp left from debugging (junctions — remove manually on Windows)
+.pytest_tmp/
+
+# tooling scratch & Obsidian per-user state
+.workbuddy-ai/
+.codebuddy/
+vault/.obsidian/workspace.json
+vault/.obsidian/workspace-mobile.json
+vault/.obsidian/graph.json
