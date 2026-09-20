@@ -18,13 +18,15 @@ jobs:
           cache: pip
 
       - name: Install (core deps + TF for the integration test)
+        # -e ".[dev]" --no-deps skips the extra's deps, so the lint tool is
+        # pinned explicitly (keep in sync with ruff-pre-commit rev below).
         run: |
           pip install -e ".[dev]" --no-deps
           pip install "qiskit~=2.1" "qiskit-machine-learning~=0.9.0" \
                       "dimod>=0.12.22" "dwave-samplers>=1.8.0" \
                       "scikit-learn>=1.5,<1.11" "numpy>=2.3,<2.6" pandas scipy \
                       opencv-python-headless pillow matplotlib pyyaml requests tqdm \
-                      "pydantic>=2,<3" \
+                      "pydantic>=2,<3" "ruff==0.7.4" \
                       "tensorflow-cpu~=2.19"
 
       - name: Ruff (lint)
