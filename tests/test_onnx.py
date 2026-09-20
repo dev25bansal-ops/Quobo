@@ -13,14 +13,11 @@ def test_onnx_pipeline_parity(tmp_path):
     """The exporter's core pattern (StandardScaler+PCA -> RBF-SVM -> ONNX)
     must reproduce sklearn predictions. Uses a tiny synthetic model so CI
     doesn't need the real MobileNetV2 embeddings."""
-    import onnxruntime as ort
-
-    try:
-        from skl2onnx import to_onnx
-        from skl2onnx.common.data_types import FloatTensorType
-        from sklearn.pipeline import Pipeline
-    except ImportError:
-        pytest.skip("onnxruntime/skl2onnx not installed (edge extra)")
+    ort = pytest.importorskip("onnxruntime", reason="edge extra not installed")
+    pytest.importorskip("skl2onnx", reason="edge extra not installed")
+    from skl2onnx import to_onnx
+    from skl2onnx.common.data_types import FloatTensorType
+    from sklearn.pipeline import Pipeline
     from sklearn.decomposition import PCA
     from sklearn.preprocessing import StandardScaler
     from sklearn.svm import SVC
