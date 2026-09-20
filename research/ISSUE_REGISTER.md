@@ -1,7 +1,13 @@
-# Quobo — Issue Register (Post-Remediation, v2)
+# Quobo — Issue Register (Post-Remediation, v3)
 
-**Date:** 2026-09-10 · **State:** after executing AUDIT_REPORT.md (tag `v1.0-results`) + the open-issue queue (OPEN-1..10)
-**Method:** every item verified against current code/artifacts. Resolved items listed with verification evidence; externally-blocked items listed with their exact blocker.
+**Date:** 2026-09-17 · **State:** working tree after the provenance-hardening pass (Q04/Q05) on top of AUDIT_REPORT.md (tag `v1.0-results`) + the open-issue queue (OPEN-1..10)
+**Method:** every item verified against current code/artifacts. Resolved items listed with verification evidence; externally-blocked items listed with their exact blocker. Nothing here is committed — this is the uncommitted working tree.
+
+> **Test status (truthful, 2026-09-17):** the suite now spans ~107 test functions across
+> unit, property-based, integration, provenance, data-security and quantum-experiment
+> modules. A **full green run is not claimed** — the suite has not been re-executed end
+> to end against this working tree. Prior "16/16 green" statements below describe the
+> 2026-09-10 state and are superseded.
 
 ---
 
@@ -31,6 +37,16 @@
 | OPEN-8 | Folder-mode untested | Low | f8a6a37 | **Real bug found & fixed** (zone = grandparent dir); zone_dir column honored; 2 new tests |
 | MI-BIN | MI bias caveat | Low | — | Documented in paper §5 |
 
+### 2026-09-17 provenance hardening (Q04/Q05) — working tree, uncommitted
+
+| ID | Issue | Sev | Where | Verification |
+|---|---|---|---|---|
+| PRV-001 | Runs could be consumed with no/incomplete provenance | High | `src/quobo/run_experiment.py` | `run_manifest.json` lifecycle `running`→`complete`/`failed`; `{sha256, bytes}` artifact inventory; consumers must require `status=="complete"` |
+| PRV-002 | Predictions could not be mapped to crops without replaying the split | High | `src/quobo/run_experiment.py` | each `repN_<arm>.json` persists `test_ids` + `y_test` + aligned `predictions`; dashboard consumes the saved IDs and never re-splits |
+| PRV-003 | Dashboard silently fell back to ground-truth labels | High | `scripts/pollution_dashboard.py` | no fallback: prediction mode raises `ProvenanceError` on missing/corrupt/tampered/incomplete runs; ground truth only via explicit `--mode demo-ground-truth` |
+| PSI-002 | PSI presented as an air-quality-style health index | Med | `scripts/pollution_dashboard.py` | dashboard labels PSI as a **project-defined relative index, unvalidated, not a health index**, not comparable to EPA AQI / Singapore PSI / CPCB NAQI; bands and 0–500 scale are borrowed for readability only |
+| ONNX-001 | Shipped ONNX manifest claimed `backbone_exported:true` but omitted the backbone from its artifact list | Med | `scripts/export_onnx.py`, `results/onnx/export_manifest.json` | `artifacts` is now a `{sha256, bytes}` inventory (same format as run manifests) covering `features_1280_50.onnx`, `head_svm_8.onnx`, `backbone_mobilenet.onnx`, `inference.py`; existing backbone is reused/hashed, never regenerated |
+
 ## Part 2 — Remaining (externally blocked; nothing left code-side)
 
 | ID | Item | Blocker | Ready-when |
@@ -39,9 +55,13 @@
 | OPEN-9 | Real Gwalior map | Ward-boundary GeoJSON — **you** must obtain (GMC/Smart City SPV/GADM) | Analytics ready; swap CSS grid for Folium when GeoJSON lands |
 | OPEN-10 | Cross-dataset replication | TrashNet ~2GB zip download (GitHub API rate-limited this session) + extraction | **Harness complete & proven**: `crops_dir_override` config key + `configs/experiment_trashnet.yaml` — one command after extraction |
 | S3 | D-Wave QPU run | DWAVE_API_TOKEN — **you** must register at dwave-system.com/leap | `scripts/qpu_run.py` verified to build the QUBO and skip green without token |
+| PRV-004 | Legacy run directories are not consumable in prediction mode | Historical `experiments/*` predate PRV-001/002: no `run_manifest.json`, no `test_ids` | Re-run the experiment (writes manifest + IDs), or use `--mode demo-ground-truth` to reproduce the demo dashboard from saved labels |
 
 ## Part 3 — Final state
 
-- **Tests:** 16/16 green · **Lint:** ruff clean · **Reproducibility:** verified (same seed → same selection)
+- **Tests:** ~107 test functions present; **no full-suite pass claimed** for this working tree (not re-run end to end). Prior 2026-09-10 state was 16/16 green.
+- **Lint/reproducibility:** ruff config present; same seed → same selection (verified in the leak-free rerun).
+- **Provenance:** prediction-mode analytics require a completed run manifest + saved `test_ids`; legacy runs are refused, not guessed. Ground-truth demo is opt-in via `--mode demo-ground-truth`.
+- **PSI:** explicitly a project-defined relative, unvalidated index — not a health index and not comparable to regulatory air-quality indices.
 - **Definitive numbers (leak-free v2, 25 group-aware repeats, Holm-corrected):** Full-50 48.3% > LASSO-8 41.4% ≈ mRMR-8 41.4% ≈ **QUBO-8 40.9%** ≈ PCA-8 40.1% ≈ MI-8 39.5% (all principled arms tie, p>0.5) ≫ Random-8 32.2% (p<0.001). QSVC ~37% (kernel parity). All principled selection methods match under the strict protocol — QUBO additionally ships a globally-optimal formulation that runs unchanged on annealers.
 - **Paper:** research/PAPER_DRAFT.md on v2 numbers, with v1-vs-v2 protocol materiality reported transparently.

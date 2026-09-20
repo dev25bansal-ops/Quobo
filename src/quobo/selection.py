@@ -18,6 +18,7 @@ Design notes from the research report:
 - R_ij uses absolute MI on the same bins; the diagonal of R is excluded.
 - The alpha-sweep guarantees exactly-k selection (no soft-constraint leakage).
 """
+
 from __future__ import annotations
 
 import logging
@@ -33,27 +34,54 @@ def _discretize(X: np.ndarray, n_bins: int) -> np.ndarray:
     """Per-column quantile binning -> integer codes in [0, n_bins)."""
     from sklearn.preprocessing import KBinsDiscretizer
 
-    est = KBinsDiscretizer(
-        n_bins=n_bins, encode="ordinal", strategy="quantile", subsample=None
-    )
+    est = KBinsDiscretizer(n_bins=n_bins, encode="ordinal", strategy="quantile", subsample=None)
     return est.fit_transform(X).astype(np.int64)
 
 
 def compute_mi_table(X: np.ndarray, y: np.ndarray, n_bins: int) -> tuple[np.ndarray, np.ndarray]:
-    """Return (I_i, R_ij) — per-feature MI with label, and pairwise feature MI."""
-    Xd = _discretize(X, n_bins)
-    n_feat = X.shape[1]
+    """Return (I_i, R_ij) — per-feature MI with label, and pairwise feature MI.
 
-    # MI with label, computed on discretized features for consistency with R_ij
+    M-03: the 1,225 per-pair ``contingency_matrix`` builds (the expensive part of
+    each ``mutual_info_score`` call) are replaced by a single one-hot einsum that
+    produces every joint-count tensor at once; sklearn's own estimator is then
+    run on the precomputed contingency. The values are bit-identical to the old
+    per-pair loop (verified across seeds), so frozen paper numbers and the
+    determinism test are unaffected.
+    """
     from sklearn.metrics import mutual_info_score
 
-    I = np.zeros(n_feat)
+    Xd = _discretize(X, n_bins)
+    n_feat = X.shape[1]
+    n_samples = Xd.shape[0]
+    # Label normalization: the leak-free pipeline passes string labels (the raw
+    # ``label`` column), not pre-encoded integers. Mutual information is invariant
+    # under any bijective label map, so a stable encoding yields *identical* I/R
+    # values; integer labels (unit tests, legacy callers) pass through unchanged.
+    y = np.asarray(y)
+    if not np.issubdtype(y.dtype, np.integer):
+        _, y = np.unique(y, return_inverse=True)
+    n_classes = int(y.max()) + 1
+
+    # one-hot the discretized features and the label once
+    O = np.zeros((n_samples, n_feat, n_bins))  # noqa: E741 (one-hot tensor)
+    rows = np.arange(n_samples)
     for j in range(n_feat):
-        I[j] = mutual_info_score(Xd[:, j], y)
+        O[rows, j, Xd[:, j]] = 1.0
+    Yoh = np.zeros((n_samples, n_classes))
+    Yoh[rows, y] = 1.0
+
+    # joint counts: Jy[j] is the (bins x classes) contingency for feature j;
+    # J[a, b] is the (bins x bins) contingency for the feature pair (a, b)
+    Jy = np.einsum("nab,nc->abc", O, Yoh)
+    J = np.einsum("nai,nbj->abij", O, O)
+
+    I = np.array(  # noqa: E741 (I = MI vector)
+        [mutual_info_score(None, None, contingency=Jy[j]) for j in range(n_feat)]
+    )
 
     R = np.zeros((n_feat, n_feat))
     for a, b in combinations(range(n_feat), 2):
-        m = mutual_info_score(Xd[:, a], Xd[:, b])
+        m = mutual_info_score(None, None, contingency=J[a, b])
         R[a, b] = R[b, a] = m
     return I, R
 
@@ -94,7 +122,7 @@ def select_qubo(
     so frozen paper results and the determinism test are unaffected."""
     from dwave.samplers import SimulatedAnnealingSampler
 
-    I, R = compute_mi_table(X, y, n_bins)
+    I, R = compute_mi_table(X, y, n_bins)  # noqa: E741 (I=MI vector, R=redundancy)
     n = X.shape[1]
     sampler = SimulatedAnnealingSampler()
 
@@ -120,12 +148,16 @@ def select_qubo(
     alpha_trace: list[tuple[float, int]] = []
 
     if parallel:
-        # Phase 1: parallel coarse scan to bracket alpha (count monotone in alpha)
+        # Phase 1: submit the coarse alpha solves concurrently and collect.
+        # solve() derives its RNG seed from alpha, so each count is independent
+        # of thread scheduling; counts are read back in alpha order (then
+        # sorted) so the bracket — and the whole selection — stays deterministic.
         from concurrent.futures import ThreadPoolExecutor
 
         coarse = [round(a, 4) for a in np.linspace(0.05, 0.95, 10)]
-        with ThreadPoolExecutor(max_workers=4):
-            counts = dict(zip(coarse, (len(solve(a)[0]) for a in coarse)))
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futures = {a: pool.submit(solve, a) for a in coarse}
+            counts = {a: len(fut.result()[0]) for a, fut in futures.items()}
         alpha_trace.extend(sorted(counts.items()))
         lo, hi = 0.0, 1.0
         for a, c in sorted(counts.items()):
@@ -198,13 +230,24 @@ def select_lasso(X, y, k, seed=None):
     # sklearn >=1.8: l1 selection via l1_ratios (penalty= is deprecated)
     try:
         clf = LogisticRegressionCV(
-            l1_ratios=[1.0], solver="saga", Cs=10, cv=3, random_state=seed,
-            n_jobs=-1, max_iter=5000, scoring="accuracy",
+            l1_ratios=[1.0],
+            solver="saga",
+            Cs=10,
+            cv=3,
+            random_state=seed,
+            n_jobs=-1,
+            max_iter=5000,
+            scoring="accuracy",
         ).fit(Xs, y)
     except TypeError:  # older sklearn: penalty= API
         clf = LogisticRegressionCV(
-            penalty="l1", solver="saga", Cs=10, cv=3, random_state=seed,
-            n_jobs=-1, max_iter=5000,
+            penalty="l1",
+            solver="saga",
+            Cs=10,
+            cv=3,
+            random_state=seed,
+            n_jobs=-1,
+            max_iter=5000,
         ).fit(Xs, y)
     scores = np.abs(clf.coef_).mean(axis=0)
     return sorted(np.argsort(-scores)[:k].tolist())
@@ -217,7 +260,7 @@ def select_mrmr(X, y, k, seed=None, n_bins=16):
     from sklearn.metrics import mutual_info_score
 
     n_feat = X.shape[1]
-    I = np.array([mutual_info_score(Xd[:, j], y) for j in range(n_feat)])
+    I = np.array([mutual_info_score(Xd[:, j], y) for j in range(n_feat)])  # noqa: E741
     R = np.zeros((n_feat, n_feat))
     for a, b in combinations(range(n_feat), 2):
         m = mutual_info_score(Xd[:, a], Xd[:, b])
@@ -231,8 +274,7 @@ def select_mrmr(X, y, k, seed=None, n_bins=16):
     remaining.remove(first)
     while len(selected) < k and remaining:
         scores = [
-            I[i] - (np.mean([R[i, j] for j in selected]) if selected else 0.0)
-            for i in remaining
+            I[i] - (np.mean([R[i, j] for j in selected]) if selected else 0.0) for i in remaining
         ]
         best = remaining[int(np.argmax(scores))]
         selected.append(best)

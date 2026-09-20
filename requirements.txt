@@ -7,7 +7,7 @@ dwave-samplers>=1.8.0
 
 # Vision + classical ML
 tensorflow~=2.19
-scikit-learn>=1.5
+scikit-learn>=1.5,<1.11
 opencv-python
 pillow
 
@@ -15,9 +15,8 @@ pillow
 pandas
 numpy>=2.3,<2.6
 matplotlib
-seaborn
 tqdm
 pyyaml
 requests
-jupyterlab
+pydantic>=2,<3
 scipy

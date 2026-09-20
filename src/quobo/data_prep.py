@@ -5,11 +5,12 @@ TACO (Proenca & Simoes, arXiv:2003.06975) ships COCO-style annotations.
 We crop each annotation bbox (with 10% margin) and save as
 data/processed/crops/<class>/<img_id>_<ann_id>.jpg
 """
+
 import json
 import logging
 import shutil
 from collections import Counter, defaultdict
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import cv2
 import requests
@@ -20,12 +21,10 @@ from .config import ROOT
 log = logging.getLogger(__name__)
 
 TACO_URL = "https://github.com/pedropro/TACO/raw/master/data/annotations.json"
-SUPERCAT_MAP_URL = (
-    "https://raw.githubusercontent.com/pedropro/TACO/master/data/classes.csv"
-)
 
 
 MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024  # annotations.json is ~10 MB; anything bigger is wrong
+MAX_IMG_BYTES = 20 * 1024 * 1024  # flickr_640 images are ~90 KB; cap hostile redirects
 
 
 def download_file(url: str, dest: Path, desc: str = "") -> Path:
@@ -37,9 +36,10 @@ def download_file(url: str, dest: Path, desc: str = "") -> Path:
     resp.raise_for_status()
     total = int(resp.headers.get("content-length", 0))
     written = 0
-    with open(dest, "wb") as f, tqdm(
-        total=total, unit="B", unit_scale=True, desc=desc or dest.name
-    ) as bar:
+    with (
+        open(dest, "wb") as f,
+        tqdm(total=total, unit="B", unit_scale=True, desc=desc or dest.name) as bar,
+    ):
         for chunk in resp.iter_content(chunk_size=1 << 20):
             written += len(chunk)
             if written > MAX_DOWNLOAD_BYTES:
@@ -49,6 +49,24 @@ def download_file(url: str, dest: Path, desc: str = "") -> Path:
             f.write(chunk)
             bar.update(len(chunk))
     return dest
+
+
+def _validate_dataset_paths(coco: dict, root: Path, context: str) -> None:
+    """Reject crafted file_name entries before any decode/download.
+
+    COCO file_name values are treated as dataset-relative POSIX-style names.
+    Any absolute path, drive letter, '..' segment, or traversal that would
+    escape *root* is a data-integrity error, not a per-image skip: silently
+    skipping can hide a corrupted or tampered snapshot.
+    """
+    for im in coco.get("images", []):
+        fn = im.get("file_name", "")
+        if not fn or PurePosixPath(fn).is_absolute() or PureWindowsPath(fn).is_absolute():
+            raise ValueError(f"unsafe {context} filename: {fn!r}")
+        if ".." in PurePosixPath(fn).parts or ".." in PureWindowsPath(fn).parts:
+            raise ValueError(f"unsafe {context} filename: {fn!r}")
+        if not (root / fn).resolve().is_relative_to(root.resolve()):
+            raise ValueError(f"unsafe {context} filename escapes root: {fn!r}")
 
 
 def download_taco_images(ann_path: Path, images_dir: Path) -> None:
@@ -61,6 +79,7 @@ def download_taco_images(ann_path: Path, images_dir: Path) -> None:
 
     with open(ann_path, encoding="utf-8") as f:
         coco = json.load(f)
+    _validate_dataset_paths(coco, images_dir, "downloader")
 
     images_dir.mkdir(parents=True, exist_ok=True)
     todo = []
@@ -81,10 +100,18 @@ def download_taco_images(ann_path: Path, images_dir: Path) -> None:
             continue
         p.parent.mkdir(parents=True, exist_ok=True)
         try:
-            r = session.get(url, timeout=30)
-            r.raise_for_status()
-            img = Image.open(io.BytesIO(r.content))
-            img.save(p)
+            with session.get(url, timeout=30, stream=True) as r:
+                r.raise_for_status()
+                received = 0
+                payload = io.BytesIO()
+                for chunk in r.iter_content(chunk_size=1 << 16):
+                    received += len(chunk)
+                    if received > MAX_IMG_BYTES:
+                        raise ValueError(f"image exceeds {MAX_IMG_BYTES} byte cap")
+                    payload.write(chunk)
+                img = Image.open(payload)
+                img.load()
+                img.save(p)
         except Exception as e:  # noqa: BLE001 — dead Flickr links are expected
             failed.append((im["file_name"], str(e)[:60]))
     if failed:
@@ -128,7 +155,7 @@ def download_taco(raw_dir: Path) -> tuple[Path, Path]:
     return ann_path, images_dir
 
 
-def load_supercat_map(cfg_classes: list[str]) -> dict[str, str]:
+def load_supercat_map() -> dict[str, str]:
     """Map each of TACO's 60 leaf categories to one of the configured coarse classes.
 
     Uses the paper's own grouping: leaf categories whose supercategory matches a
@@ -153,9 +180,10 @@ def build_crops(
     """Crop annotated objects into per-class folders. Returns a stats dict."""
     with open(ann_path, encoding="utf-8") as f:
         coco = json.load(f)
+    _validate_dataset_paths(coco, images_dir, "crop source")
 
     cat_id_to_name = {c["id"]: c["name"] for c in coco["categories"]}
-    leaf_map = load_supercat_map(cfg_classes)
+    leaf_map = load_supercat_map()
     img_id_to_rec = {im["id"]: im for im in coco["images"]}
 
     per_class = Counter()
@@ -200,7 +228,9 @@ def build_crops(
             cls_dir.mkdir(exist_ok=True)
             # dataset filenames are semi-trusted: verify the destination stays
             # inside the crops root (blocks path traversal via crafted file_name)
-            crop_name = f"{rec['file_name'].replace('/', '_').replace('.jpg', '')}_ann{ann['id']}.jpg"
+            crop_name = (
+                f"{rec['file_name'].replace('/', '_').replace('.jpg', '')}_ann{ann['id']}.jpg"
+            )
             dest = cls_dir / crop_name
             if not dest.resolve().is_relative_to(out_dir.resolve()):
                 skipped["path_escape"] += 1
@@ -221,7 +251,9 @@ def build_crops(
         "per_class": dict(per_class),
         "removed_classes": removed,
         "skipped": dict(skipped),
-        "kept_classes": {c: per_class[c] for c in cfg_classes if per_class[c] >= min_images_per_class},
+        "kept_classes": {
+            c: per_class[c] for c in cfg_classes if per_class[c] >= min_images_per_class
+        },
     }
     return stats
 
@@ -249,7 +281,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     from .config import load_config
 
-    cfg = load_config(sys.argv[1] if len(sys.argv) > 1 else "configs/experiment.yaml")
+    cfg = load_config(sys.argv[1] if len(sys.argv) > 1 else "configs/experiment_6class.yaml")
     s = run_data_prep(cfg)
     print("per-class counts:", s["per_class"])
     print("removed (below min):", s["removed_classes"])

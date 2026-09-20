@@ -3,6 +3,7 @@
 Build:  .venv/Scripts/python -m sphinx -b html docs docs/_build/html
 Docs are auto-generated from module + function docstrings (autodoc), so they
 stay in sync with the code."""
+
 import os
 import sys
 
@@ -18,6 +19,7 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
+    "myst_parser",
 ]
 
 napoleon_numpy_docstring = True

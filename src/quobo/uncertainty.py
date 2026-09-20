@@ -1,40 +1,35 @@
-"""A1: uncertainty-aware PSI — propagate classifier uncertainty into zone indices.
+"""Binomial sampling intervals and descriptive prediction stability.
 
-The 25-repeat majority vote already stores a per-crop vote distribution; that
-distribution IS the uncertainty. Two layers:
-
-1. Per-crop vote agreement (0-1): fraction of repeats agreeing with the
-   majority label. A crop that splits 13/12 across repeats is noise, and
-   pretending otherwise inflates zone-level confidence.
-2. Per-zone Wilson score intervals on the 'dirty' rate (the PSI driver):
-   the reported PSI band inherits the worst-case (upper) bound, so a zone
-   only reaches 'Hazardous' when the *lower* bound of its evidence supports it.
-
-Wilson is used over naive +/-1.96*sqrt(p(1-p)/n) because it keeps intervals
-inside [0,1] for small n and never produces the degenerate zero-width
-interval at p=0 or p=1 that the normal approximation does.
-
-References: Wilson 1927 (JASA 22:209); Brown, Cai & DasGupta 2001
-(Int. Statist. Rev. 69:101) recommend it for binomial proportions at small n.
+Wilson intervals assume independent Bernoulli observations. Repeated model
+votes and crops from the same image are not independent validation samples;
+vote agreement is not a calibrated probability of correctness.
 """
+
 from __future__ import annotations
 
 import math
 
 
 def wilson_interval(successes: int, n: int, z: float = 1.96) -> tuple[float, float]:
-    """Wilson score interval for a binomial proportion. Returns (lo, hi).
+    """Return the Wilson score interval; no observations give [0, 1].
 
-    Examples
-    --------
     >>> lo, hi = wilson_interval(8, 10)
-    >>> 0.48 < lo < 0.50 and 0.88 < hi < 0.90
+    >>> 0.49 < lo < 0.50 and 0.94 < hi < 0.95
     True
-    >>> wilson_interval(0, 5)
-    (0.0, 0.0)
+    >>> lo, hi = wilson_interval(0, 5)
+    >>> lo == 0.0 and 0.43 < hi < 0.44
+    True
     """
-    if n <= 0:
-        return (0.0, 0.0)
+    if not isinstance(successes, int) or not isinstance(n, int):
+        raise TypeError("successes and n must be integers")
+    if isinstance(successes, bool) or isinstance(n, bool):
+        raise TypeError("successes and n must not be booleans")
+    if n < 0 or successes < 0 or successes > n:
+        raise ValueError("require 0 <= successes <= n")
+    if not math.isfinite(z) or z <= 0:
+        raise ValueError("z must be finite and positive")
+    if n == 0:
+        return (0.0, 1.0)
     p = successes / n
     denom = 1 + z * z / n
     center = p + z * z / (2 * n)
@@ -45,14 +40,13 @@ def wilson_interval(successes: int, n: int, z: float = 1.96) -> tuple[float, flo
 
 
 def vote_agreement(votes_per_crop: list[dict[str, int]]) -> float:
-    """Mean majority-vote agreement across crops, in [0,1].
-
-    votes_per_crop: one {class_label: count} dict per crop (from the 25
-    per-rep predictions). Agreement = majority count / total votes, averaged
-    over crops with at least one vote.
-    """
+    """Mean majority fraction over crops with votes; empty input returns zero."""
     agreements = []
     for counts in votes_per_crop:
+        if any(not isinstance(v, int) or isinstance(v, bool) for v in counts.values()):
+            raise TypeError("vote counts must be integers")
+        if any(v < 0 for v in counts.values()):
+            raise ValueError("vote counts must be nonnegative")
         total = sum(counts.values())
         if total == 0:
             continue

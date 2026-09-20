@@ -12,7 +12,7 @@ dependencies = [
   "qiskit-machine-learning~=0.9.0",
   "dimod>=0.12.22",
   "dwave-samplers>=1.8.0",
-  "scikit-learn>=1.5,<2",
+  "scikit-learn>=1.5,<1.11",
   "numpy>=2.3,<2.6",
   "pandas",
   "scipy",
@@ -22,14 +22,15 @@ dependencies = [
   "tqdm",
   "pyyaml",
   "requests",
+  "pydantic>=2,<3",
 ]
 
 [project.optional-dependencies]
 full = ["tensorflow~=2.19", "qiskit-aer~=0.17"]   # heavy: backbone embeddings, optional on CI
-edge = ["onnxruntime", "skl2onnx", "tf2onnx"]    # ONNX export for edge inference (Enhancement 8)
+edge = ["onnxruntime", "skl2onnx>=1.20", "tf2onnx"]    # ONNX export for edge inference (Enhancement 8)
 dashboard = ["plotly>=5"]                        # interactive charts (Enhancement 5)
 track = ["mlflow>=3"]                            # experiment tracking (Enhancement 10)
-dev = ["pytest>=8", "ruff", "hypothesis>=6", "sphinx>=7"]   # tests, lint, docs
+dev = ["pytest>=8", "pytest-cov", "ruff", "hypothesis>=6", "sphinx>=7", "myst-parser", "jupyterlab>=4"]   # tests, lint, docs, notebooks
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -43,3 +44,18 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+[tool.coverage.run]
+source = ["quobo"]
+branch = true
+
+[tool.coverage.report]
+# H-03: first documented gate. Start at 80% (line + branch); calibrate upward
+# once the first measured run lands (the continuous build enforces this via
+# --cov-fail-under).
+fail_under = 80
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]

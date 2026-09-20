@@ -7,6 +7,7 @@ this produces the single citable "solved on a quantum annealer" number.
 Usage:  DWAVE_API_TOKEN=... .venv/Scripts/python.exe -m scripts.qpu_run
 (no token -> prints the SA result and exits 0, so CI stays green)
 """
+
 import json
 import logging
 import os
@@ -27,7 +28,7 @@ log = logging.getLogger("qpu")
 
 def build_qubo(X: np.ndarray, y: np.ndarray, k: int, alpha: float, n_bins: int = 16) -> dict:
     """Mücke-style QFS QUBO at fixed alpha (reuses the MI tables)."""
-    I, R = compute_mi_table(X, y, n_bins)
+    I, R = compute_mi_table(X, y, n_bins)  # noqa: E741 (I=MI vector, R=redundancy)
     n = len(I)
     Q: dict[tuple[int, int], float] = {}
     for i in range(n):
@@ -66,7 +67,7 @@ def main() -> int:
     for alpha in (0.5, 0.6, 0.7):
         qubo = build_qubo(X, y, cfg["selection"]["k"], alpha)
         sampleset = sampler.sample_qubo(qubo, label=f"quobo-fs-alpha{alpha}")
-        chosen = [i for i in sorted(qubo) if sampleset.first.sample[i] == 1]
+        chosen = [i for i in range(X.shape[1]) if sampleset.first.sample[i] == 1]
         log.info("alpha=%.2f -> %d features: %s", alpha, len(chosen), chosen)
         if len(chosen) == cfg["selection"]["k"]:
             break
@@ -76,15 +77,27 @@ def main() -> int:
         "alpha": alpha,
         "selected": chosen,
         "n_features_selected": len(chosen),
+        "requested_k": cfg["selection"]["k"],
+        "cardinality_ok": len(chosen) == cfg["selection"]["k"],
         "qpu_time_seconds": round(time.time() - t0, 1),
         "dataset": "TACO-6class-1836crops-PCA50",
     }
+    if not out["cardinality_ok"]:
+        log.warning(
+            "QPU sample has %d features but k=%d was requested; result is not "
+            "directly comparable to exactly-k experiment arms",
+            len(chosen),
+            cfg["selection"]["k"],
+        )
     out_dir = ROOT / "results" / "qpu"
     out_dir.mkdir(parents=True, exist_ok=True)
     with open(out_dir / "qpu_selection.json", "w", encoding="utf-8") as f:
         json.dump(out, f, indent=2)
-    log.info("saved %s — feed these indices through the standard classifier suite "
-             "for the citable hardware-validated EXP-D numbers", out_dir / "qpu_selection.json")
+    log.info(
+        "saved %s — feed these indices through the standard classifier suite "
+        "for the citable hardware-validated EXP-D numbers",
+        out_dir / "qpu_selection.json",
+    )
     return 0
 
 

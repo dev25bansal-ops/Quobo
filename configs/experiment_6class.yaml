@@ -25,6 +25,7 @@ qubo:
   mi_bins: 16
   sa_sweeps: 20000
   sa_repeats: 10
+  parallel: true              # L-04: threaded coarse alpha scan (~3x; result-identical)
 
 qsvm:
   reps: 1
