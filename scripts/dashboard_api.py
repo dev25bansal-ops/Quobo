@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
@@ -164,19 +164,21 @@ def dashboard(
         "zone_count": len(zones),
     }
     if not zt.empty and int(zt["total"].sum()) > 0:
+        worst_idx = zt["psi"].idxmax()
+        worst_row = zt.loc[worst_idx]
         kpis = {
             "cleanliness": round(float(zt["clean"].sum() / zt["total"].sum() * 100), 1),
             "worst_zone": {
-                "zone": str(zt.loc[zt["psi"].idxmax(), "zone"]),
+                "zone": str(worst_row["zone"]),
                 "psi": int(zt["psi"].max()),
-                "band": str(zt.loc[zt["psi"].idxmax(), "band"]),
+                "band": str(worst_row["band"]),
             },
             "total_items": int(zt["total"].sum()),
             "zone_count": len(zones),
         }
 
     return {
-        "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "mode": mode,
         "zone_mode": zone_mode,
         "provenance": provenance,
