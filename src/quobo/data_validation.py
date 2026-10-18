@@ -499,7 +499,17 @@ def _validate_cache(
     for i, value in enumerate(arrays.get("crop_paths", [])):
         try:
             if root is None:
-                _portable_parts(value) if not Path(value).is_absolute() else None
+                # Without a crops root we cannot resolve against the filesystem,
+                # but we can still reject non-portable or escaping relative paths
+                # and flag absolute paths that would bypass the crops root.
+                if Path(value).is_absolute():
+                    report.error(
+                        "cache_path",
+                        f"{path}:crop_paths[{i}]",
+                        "absolute crop path supplied without a crops root to contain it",
+                    )
+                else:
+                    _portable_parts(value)
                 continue
             crop = _contained(root, value, absolute=True, base=path_base)
             if crop in actual_paths:
