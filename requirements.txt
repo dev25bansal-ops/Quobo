@@ -6,7 +6,7 @@ dimod>=0.12.22
 dwave-samplers>=1.8.0
 
 # Vision + classical ML
-tensorflow~=2.19
+tensorflow~=2.21
 scikit-learn>=1.5,<1.11
 opencv-python
 pillow
