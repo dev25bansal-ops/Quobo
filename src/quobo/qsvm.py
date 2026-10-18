@@ -4,6 +4,7 @@ QSVM: ZZFeatureMap(k qubits) -> FidelityQuantumKernel -> QSVC (sklearn SVC subcl
 Baselines: RBF-SVM on the same k features (mandatory per Huang et al. 2021),
 plus linear SVM for reference.
 """
+
 from __future__ import annotations
 
 import logging
@@ -84,23 +85,28 @@ def run_all_classifiers(Xtr, ytr, Xte, yte, cfg: dict, rep_offset: int = 0) -> d
         idx = None
         Xtr_c, ytr_c = Xtr, np.asarray(ytr)
 
-    # QSVM (angle-scaled inputs; scaler fit on train only)
+    # QSVM (angle-scaled inputs; scaler fit on train only). Reuse the already-
+    # subsampled Xtr_c/ytr_c so the quantum and classical arms see the exact
+    # same training population and dtype — re-indexing the original Xtr here
+    # would re-allocate and could diverge if the subsampling above changes.
     if run_qsvm:
         Xtr_q, Xte_q = fit_scale_for_feature_map(
-            np.asarray(Xtr, dtype=float)[idx] if idx is not None else np.asarray(Xtr, dtype=float),
+            np.asarray(Xtr_c, dtype=float),
             np.asarray(Xte, dtype=float),
         )
-        ytr_s = ytr_c
         qsvc, _ = make_qsvc(k, cfg)
         qsvc.class_weight = "balanced"
-        results["qsvm"] = evaluate(qsvc, Xtr_q, ytr_s, Xte_q, yte)
+        results["qsvm"] = evaluate(qsvc, Xtr_q, ytr_c, Xte_q, yte)
     else:
         log.warning("skipping QSVM at k=%d features (> max_qsvm_features) — classical arms only", k)
 
     # classical RBF-SVM (same subsample for fairness)
     results["rbf_svm"] = evaluate(
         SVC(kernel="rbf", class_weight="balanced", random_state=cfg["seed"]),
-        Xtr_c, ytr_c, Xte, yte,
+        Xtr_c,
+        ytr_c,
+        Xte,
+        yte,
     )
     # tuned RBF-SVM: small grid over C/gamma on the SAME training subsample.
     # Neutralizes the 'weak classical baseline' objection (Huang 2021) — the
@@ -111,13 +117,17 @@ def run_all_classifiers(Xtr, ytr, Xte, yte, cfg: dict, rep_offset: int = 0) -> d
         grid = GridSearchCV(
             SVC(kernel="rbf", class_weight="balanced"),
             {"C": [0.1, 1, 10, 100], "gamma": ["scale", 0.01, 0.1, 1]},
-            cv=3, n_jobs=1,
+            cv=3,
+            n_jobs=1,
         )
         grid.fit(Xtr_c, ytr_c)
         results["rbf_svm_tuned"] = evaluate(grid.best_estimator_, Xtr_c, ytr_c, Xte, yte)
     # linear SVM reference
     results["linear_svm"] = evaluate(
         SVC(kernel="linear", class_weight="balanced", random_state=cfg["seed"]),
-        Xtr_c, ytr_c, Xte, yte,
+        Xtr_c,
+        ytr_c,
+        Xte,
+        yte,
     )
     return results
