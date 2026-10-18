@@ -350,9 +350,12 @@ def _run_body(cfg: dict, run_dir: Path, stamp: str, manifest: dict) -> pd.DataFr
                     },
                 },
             )
-            n_reps_done = rep + 1
 
         # Enhancement 3: incremental write (crash recovery) + early stopping
+        # n_reps_done is set here (after the arm loop) so a crash mid-arm-loop
+        # does not overcount: the manifest reflects the last fully-completed rep,
+        # not the rep that was interrupted partway through.
+        n_reps_done = rep + 1
         pd.DataFrame(rows).to_csv(run_dir / "results_interim.csv", index=False)
         if cfg["experiment"].get("early_stop", False) and rep >= 9:
             stop_reason = should_stop_early(rows, run_dir)
