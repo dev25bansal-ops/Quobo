@@ -56,9 +56,11 @@ def compute_mi_table(X: np.ndarray, y: np.ndarray, n_bins: int) -> tuple[np.ndar
     # Label normalization: the leak-free pipeline passes string labels (the raw
     # ``label`` column), not pre-encoded integers. Mutual information is invariant
     # under any bijective label map, so a stable encoding yields *identical* I/R
-    # values; integer labels (unit tests, legacy callers) pass through unchanged.
+    # values. Integer labels (unit tests, legacy callers) must be remapped to a
+    # dense 0..C-1 range — non-contiguous integers (e.g. [2,5,8]) would otherwise
+    # inflate n_classes and produce wrong one-hot contingencies.
     y = np.asarray(y)
-    if not np.issubdtype(y.dtype, np.integer):
+    if not np.issubdtype(y.dtype, np.integer) or len(np.unique(y)) != int(y.max()) + 1:
         _, y = np.unique(y, return_inverse=True)
     n_classes = int(y.max()) + 1
 
