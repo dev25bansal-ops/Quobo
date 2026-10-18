@@ -46,7 +46,7 @@ def _lock_ok() -> bool:
 
 def _acquire_lock() -> None:
     CI_DIR.mkdir(parents=True, exist_ok=True)
-    LOCK_FILE.write_text(datetime.now().astimezone().isoformat())
+    LOCK_FILE.write_text(datetime.now(timezone.utc).isoformat())
 
 
 def _release_lock() -> None:

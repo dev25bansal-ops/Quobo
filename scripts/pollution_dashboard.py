@@ -29,7 +29,7 @@ import json
 import logging
 import sys
 from collections import Counter, defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -223,7 +223,7 @@ def load_predictions(
             )
         if len(set(test_ids)) != len(test_ids):
             raise ProvenanceError(f"{name} contains duplicate test_ids")
-        for crop_id, true_label, predicted in zip(test_ids, y_test, pred):
+        for crop_id, true_label, predicted in zip(test_ids, y_test, pred, strict=True):
             if crop_id in truth and truth[crop_id] != true_label:
                 raise ProvenanceError(
                     f"crop {crop_id!r} has inconsistent true labels across repeats"
@@ -446,7 +446,7 @@ def _render_empty_dashboard(out_html: Path, truth_mode: bool, provenance: dict |
 </style></head><body>
 <header>
   <h1>Quobo Pollution Dashboard — Gwalior Zones (demo)</h1>
-  <p>Source: {_html.escape(label)} · TACO crops · {datetime.now().astimezone():%d %b %Y %H:%M %Z}</p>
+  <p>Source: {_html.escape(label)} · TACO crops · {datetime.now(timezone.utc):%d %b %Y %H:%M %Z}</p>
 </header>
 <div class="empty">
   <h2>No observations</h2>
@@ -533,7 +533,7 @@ def render_dashboard(
 </style></head><body>
 <header>
   <h1>Quobo Pollution Dashboard — Gwalior Zones (demo)</h1>
-  <p>Classifier output: {source_label} · TACO crops · {datetime.now().astimezone():%d %b %Y %H:%M %Z}</p>
+  <p>Classifier output: {source_label} · TACO crops · {datetime.now(timezone.utc):%d %b %Y %H:%M %Z}</p>
   <p><b>PSI is a project-defined relative index — unvalidated and not a health or air-quality standard.</b></p>
 </header>
 <div class="kpis">

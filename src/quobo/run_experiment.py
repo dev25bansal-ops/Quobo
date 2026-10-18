@@ -464,7 +464,7 @@ def paired_significance(results: pd.DataFrame) -> list[dict]:
             raw_t_p.append(float(tp) if np.isfinite(tp) else 1.0)
     t_corr = holm(raw_t_p)
     out = []
-    for c, p, tp in zip(comparisons, p_corr, t_corr):
+    for c, p, tp in zip(comparisons, p_corr, t_corr, strict=True):
         d = c["diff"]
         out.append(
             {

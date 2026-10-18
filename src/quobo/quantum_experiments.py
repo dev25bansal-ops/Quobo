@@ -644,7 +644,7 @@ def aggregate_sampler_results(results, pairs, shape, symmetric: bool) -> tuple[n
         raise ValueError("Sampler result count does not match submitted overlap circuits")
     kernel = np.full(shape, np.nan)
     shots = []
-    for result, (i, j) in zip(results, pairs):
+    for result, (i, j) in zip(results, pairs, strict=True):
         counts = result.data.meas.get_counts()
         total = sum(counts.values())
         if total <= 0 or any(
