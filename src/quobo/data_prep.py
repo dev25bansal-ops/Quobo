@@ -215,7 +215,7 @@ def build_crops(
         sx = W / rec["width"]
         sy = H / rec["height"]
         for ann, coarse in ann_list:
-            x, y, w, h = (c * s for c, s in zip(ann["bbox"], (sx, sy, sx, sy)))
+            x, y, w, h = (c * s for c, s in zip(ann["bbox"], (sx, sy, sx, sy), strict=True))
             m = 0.10  # margin
             x0 = max(0, int(x - m * w))
             y0 = max(0, int(y - m * h))

@@ -79,8 +79,11 @@ def _save_onnx(model, initial_type: str, dims: tuple, name: str) -> bytes:
     # works for both the feature Pipeline and the SVM (label is output[0])
     onx = to_onnx(model, initial_types=[(initial_type, FloatTensorType(list(dims)))])
     blob = onx.SerializeToString()
-    with open(OUT / name, "wb") as f:
-        f.write(blob)
+    # Atomic publish: a truncated ONNX blob would be blessed by the next run's
+    # hash inventory unless the write is all-or-nothing.
+    from src.quobo.atomic import publish_replace
+
+    publish_replace(OUT / name, blob)
     log.info("exported %s (%d bytes)", name, len(blob))
     return blob
 
@@ -273,8 +276,11 @@ def main() -> int:
             log.info("reusing existing backbone_mobilenet.onnx (pass --backbone to re-export)")
     write_inference_helper()
     manifest["artifacts"] = _artifact_inventory()
-    with open(OUT / "export_manifest.json", "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2)
+    # Atomic publish: a truncated manifest with a stale hash inventory would
+    # bless corrupt artifacts (the hash is computed from whatever is on disk).
+    from src.quobo.atomic import publish_replace
+
+    publish_replace(OUT / "export_manifest.json", json.dumps(manifest, indent=2).encode("utf-8"))
     log.info(
         "done. head parity %.2f%%, backbone=%s, %d artifacts hashed",
         manifest["head_parity_pct"],
