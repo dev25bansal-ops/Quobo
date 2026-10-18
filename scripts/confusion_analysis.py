@@ -30,10 +30,43 @@ log = logging.getLogger("confusion")
 
 
 def latest_run_dir() -> Path:
-    runs = sorted((ROOT / "experiments").iterdir())
-    if not runs:
+    """Locate the most recent run directory.
+
+    Prefers a run whose manifest says ``complete`` (a ``running``/``failed``
+    run's per-rep artifacts may be partial); falls back to the newest directory
+    that has a manifest if none are complete, so the artifact-hash check in
+    _verify_artifacts still catches tampering. If no manifests exist at all
+    (legacy/bare dirs), returns the newest directory — the hash verification
+    in _verify_artifacts then gates the actual consumption."""
+    experiments = ROOT / "experiments"
+    if not experiments.is_dir() or not any(experiments.iterdir()):
         raise SystemExit("no experiment runs found — run src.quobo.run_experiment first")
-    return runs[-1]
+    complete = []
+    with_manifest = []
+    for d in sorted(experiments.iterdir()):
+        if not d.is_dir():
+            continue
+        manifest_path = d / "run_manifest.json"
+        if not manifest_path.is_file():
+            continue
+        with_manifest.append(d)
+        try:
+            status = json.loads(manifest_path.read_text(encoding="utf-8")).get("status")
+        except json.JSONDecodeError:
+            status = None
+        if status == "complete":
+            complete.append(d)
+    if complete:
+        return complete[-1]
+    if with_manifest:
+        log.warning(
+            "no completed run found; using %s (status may be incomplete — "
+            "per-rep artifacts are hash-verified but the run was not finalized)",
+            with_manifest[-1].name,
+        )
+        return with_manifest[-1]
+    # No manifests at all (legacy/bare dirs) — newest dir, hash check gates it
+    return sorted(experiments.iterdir())[-1]
 
 
 def _verify_artifacts(run_dir: Path, reps: list[Path]) -> None:
@@ -63,6 +96,11 @@ def _verify_artifacts(run_dir: Path, reps: list[Path]) -> None:
 def main() -> None:
     run_dir = latest_run_dir()
     reps = sorted(run_dir.glob("rep*_D_qubo.json"))
+    if not reps:
+        raise SystemExit(
+            f"run {run_dir.name} has no rep*_D_qubo.json files — confusion "
+            "analysis currently targets the QUBO arm; run with D_qubo in arms"
+        )
     log.info("using run %s (%d repeats)", run_dir.name, len(reps))
     _verify_artifacts(run_dir, reps)
 
@@ -79,7 +117,12 @@ def main() -> None:
         with open(rep_file, encoding="utf-8") as f:
             j = json.load(f)
         yte = np.array(j["y_test"])
-        for clf in ("qsvm", "rbf_svm"):
+
+        # Only aggregate/classify classifiers that actually exist in this rep
+        # (QSVM is skipped when k > max_qsvm_features).
+        for clf in ("rbf_svm", "qsvm"):
+            if clf not in j["metrics"]:
+                continue
             pred = np.array(j["metrics"][clf]["predictions"])
             agg[clf] += confusion_matrix(yte, pred, labels=classes)
 
@@ -98,22 +141,24 @@ def main() -> None:
                     "support": int(si),
                 }
             )
-        # QSVM per-class rows too (audit: previously RBF-only)
-        p, r, f1, s = precision_recall_fscore_support(
-            yte, np.array(j["metrics"]["qsvm"]["predictions"]), labels=classes, zero_division=0
-        )
-        for c, pi, ri, fi, si in zip(classes, p, r, f1, s, strict=True):
-            per_class_rows.append(
-                {
-                    "repeat": j.get("rep", rep_file.stem),
-                    "classifier": "qsvm",
-                    "class": c,
-                    "precision": pi,
-                    "recall": ri,
-                    "f1": fi,
-                    "support": int(si),
-                }
+        # QSVM per-class rows too (audit: previously RBF-only) — but only if
+        # QSVM actually ran for this rep (it is skipped when k > max_qsvm_features)
+        if "qsvm" in j["metrics"]:
+            p, r, f1, s = precision_recall_fscore_support(
+                yte, np.array(j["metrics"]["qsvm"]["predictions"]), labels=classes, zero_division=0
             )
+            for c, pi, ri, fi, si in zip(classes, p, r, f1, s, strict=True):
+                per_class_rows.append(
+                    {
+                        "repeat": j.get("rep", rep_file.stem),
+                        "classifier": "qsvm",
+                        "class": c,
+                        "precision": pi,
+                        "recall": ri,
+                        "f1": fi,
+                        "support": int(si),
+                    }
+                )
 
     out = ROOT / "results" / "confusion"
     out.mkdir(parents=True, exist_ok=True)
