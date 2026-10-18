@@ -86,7 +86,7 @@ def main() -> None:
         p, r, f1, s = precision_recall_fscore_support(
             yte, np.array(j["metrics"]["rbf_svm"]["predictions"]), labels=classes, zero_division=0
         )
-        for c, pi, ri, fi, si in zip(classes, p, r, f1, s):
+        for c, pi, ri, fi, si in zip(classes, p, r, f1, s, strict=True):
             per_class_rows.append(
                 {
                     "repeat": j.get("rep", rep_file.stem),
@@ -102,7 +102,7 @@ def main() -> None:
         p, r, f1, s = precision_recall_fscore_support(
             yte, np.array(j["metrics"]["qsvm"]["predictions"]), labels=classes, zero_division=0
         )
-        for c, pi, ri, fi, si in zip(classes, p, r, f1, s):
+        for c, pi, ri, fi, si in zip(classes, p, r, f1, s, strict=True):
             per_class_rows.append(
                 {
                     "repeat": j.get("rep", rep_file.stem),
