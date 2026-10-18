@@ -8,7 +8,6 @@ Output: data/features/features.csv with columns f0..f{N-1}, label, crop_path.
 import hashlib
 import json
 import logging
-import os
 import tempfile
 from pathlib import Path
 from zipfile import BadZipFile
@@ -101,18 +100,12 @@ def load_model() -> tf.keras.Model:
 
 def _atomic_savez(path: Path, **arrays) -> None:
     """Publish a complete archive without overwriting a valid prior checkpoint."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile(dir=path.parent, suffix=".npz", delete=False) as f:
-            temporary = Path(f.name)
-            np.savez_compressed(f, **arrays)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(temporary, path)
-    finally:
-        if temporary is not None and temporary.exists():
-            temporary.unlink()
+    from .atomic import publish_replace
+
+    buf = tempfile.SpooledTemporaryFile(max_size=1 << 24)
+    np.savez_compressed(buf, **arrays)
+    buf.seek(0)
+    publish_replace(path, buf.read(), suffix=".npz")
 
 
 def extract_embeddings(

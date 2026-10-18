@@ -9,7 +9,6 @@ from __future__ import annotations
 import hashlib
 import itertools
 import json
-import os
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -475,26 +474,9 @@ def _json_bytes(value: Any) -> bytes:
 
 def write_new_json(path: str | Path, value: Any):
     """Publish complete JSON atomically without replacing existing results."""
-    import tempfile
+    from .atomic import publish_exclusive
 
-    payload = _json_bytes(value)
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False
-        ) as stream:
-            temp = Path(stream.name)
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-        # A same-filesystem hard link publishes a complete file exclusively.
-        # Unlike replace/rename, it fails if another writer already published.
-        os.link(temp, path)
-    finally:
-        if temp is not None:
-            temp.unlink(missing_ok=True)
+    publish_exclusive(Path(path), _json_bytes(value))
 
 
 def ablation_grid(reps=(1, 2, 3), entanglements=("linear", "full"), budgets=(4, 6, 8, 12)):

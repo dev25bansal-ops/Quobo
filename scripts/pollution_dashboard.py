@@ -138,7 +138,21 @@ def find_complete_run(run_id: str | None = None) -> tuple[Path, dict]:
     fallback: an unfinished or manifest-less run is an error, not a demo."""
     experiments = ROOT / "experiments"
     if run_id is not None:
+        # Reject path traversal: run_id is a user-supplied identifier (CLI arg
+        # or HTTP query param), not a filesystem path. A crafted value like
+        # "../../etc" must not escape the experiments root.
+        from pathlib import PurePosixPath, PureWindowsPath
+
+        if (
+            PurePosixPath(run_id).is_absolute()
+            or PureWindowsPath(run_id).is_absolute()
+            or ".." in PurePosixPath(run_id).parts
+            or ".." in PureWindowsPath(run_id).parts
+        ):
+            raise ProvenanceError(f"run_id {run_id!r} must be a relative path without '..'")
         run_dir = experiments / run_id
+        if not run_dir.resolve().is_relative_to(experiments.resolve()):
+            raise ProvenanceError(f"run_id {run_id!r} escapes the experiments directory")
         if not run_dir.is_dir():
             raise ProvenanceError(f"experiment run {run_id!r} not found under {experiments}")
         manifest = _read_manifest(run_dir)
@@ -533,7 +547,7 @@ def render_dashboard(
 </style></head><body>
 <header>
   <h1>Quobo Pollution Dashboard — Gwalior Zones (demo)</h1>
-  <p>Classifier output: {source_label} · TACO crops · {datetime.now(timezone.utc):%d %b %Y %H:%M %Z}</p>
+  <p>Classifier output: {_html.escape(source_label)} · TACO crops · {datetime.now(timezone.utc):%d %b %Y %H:%M %Z}</p>
   <p><b>PSI is a project-defined relative index — unvalidated and not a health or air-quality standard.</b></p>
 </header>
 <div class="kpis">
