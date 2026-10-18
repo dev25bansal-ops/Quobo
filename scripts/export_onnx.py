@@ -148,10 +148,13 @@ def build_head(cfg: dict) -> dict:
     onnx_50 = feat_sess.run(None, {"input": Xte.astype(np.float32)})[0]
     onnx_label = svm_sess.run(None, {"input": onnx_50[:, sel].astype(np.float32)})[0]
     sk_label = rbf.predict(Xte50[:, sel])
-    agree = float((onnx_label == sk_label).mean())
-    log.info(
-        "head parity: %.2f%% (%d/%d)", agree * 100, (onnx_label == sk_label).sum(), len(sk_label)
-    )
+    # ONNX string tensors may decode as bytes (b'X') while sklearn returns str;
+    # normalize both to str before the == comparison so a dtype mismatch cannot
+    # silently report 0% parity for matching predictions.
+    onnx_str = np.array([v.decode() if isinstance(v, bytes) else str(v) for v in onnx_label])
+    sk_str = np.array([str(v) for v in sk_label])
+    agree = float((onnx_str == sk_str).mean())
+    log.info("head parity: %.2f%% (%d/%d)", agree * 100, (onnx_str == sk_str).sum(), len(sk_str))
 
     return {
         "k": k,
