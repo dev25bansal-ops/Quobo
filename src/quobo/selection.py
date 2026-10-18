@@ -63,7 +63,7 @@ def compute_mi_table(X: np.ndarray, y: np.ndarray, n_bins: int) -> tuple[np.ndar
     n_classes = int(y.max()) + 1
 
     # one-hot the discretized features and the label once
-    O = np.zeros((n_samples, n_feat, n_bins))  # noqa: E741 (one-hot tensor)
+    O = np.zeros((n_samples, n_feat, n_bins))  # noqa: E741
     rows = np.arange(n_samples)
     for j in range(n_feat):
         O[rows, j, Xd[:, j]] = 1.0
@@ -75,9 +75,7 @@ def compute_mi_table(X: np.ndarray, y: np.ndarray, n_bins: int) -> tuple[np.ndar
     Jy = np.einsum("nab,nc->abc", O, Yoh)
     J = np.einsum("nai,nbj->abij", O, O)
 
-    I = np.array(  # noqa: E741 (I = MI vector)
-        [mutual_info_score(None, None, contingency=Jy[j]) for j in range(n_feat)]
-    )
+    I = np.array([mutual_info_score(None, None, contingency=Jy[j]) for j in range(n_feat)])  # noqa: E741
 
     R = np.zeros((n_feat, n_feat))
     for a, b in combinations(range(n_feat), 2):
@@ -122,7 +120,7 @@ def select_qubo(
     so frozen paper results and the determinism test are unaffected."""
     from dwave.samplers import SimulatedAnnealingSampler
 
-    I, R = compute_mi_table(X, y, n_bins)  # noqa: E741 (I=MI vector, R=redundancy)
+    I, R = compute_mi_table(X, y, n_bins)  # noqa: E741
     n = X.shape[1]
     sampler = SimulatedAnnealingSampler()
 

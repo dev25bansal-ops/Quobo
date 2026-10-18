@@ -28,7 +28,7 @@ log = logging.getLogger("qpu")
 
 def build_qubo(X: np.ndarray, y: np.ndarray, k: int, alpha: float, n_bins: int = 16) -> dict:
     """Mücke-style QFS QUBO at fixed alpha (reuses the MI tables)."""
-    I, R = compute_mi_table(X, y, n_bins)  # noqa: E741 (I=MI vector, R=redundancy)
+    I, R = compute_mi_table(X, y, n_bins)  # noqa: E741
     n = len(I)
     Q: dict[tuple[int, int], float] = {}
     for i in range(n):

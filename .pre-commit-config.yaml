@@ -13,7 +13,10 @@ repos:
     hooks:
       - id: pytest-quick
         name: pytest (unit + property, no integration)
-        entry: python -m pytest -m "not integration" -q --no-header -p no:cacheprovider
+        # Use the project venv's python, not the system interpreter on PATH —
+        # the test suite imports tensorflow/sklearn/qiskit that the bare system
+        # Python (e.g. C:\Python314) does not have installed.
+        entry: ./.venv/Scripts/python.exe -m pytest -m "not integration" -q --no-header -p no:cacheprovider
         language: system
         pass_filenames: false
         types: [python]

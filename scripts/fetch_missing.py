@@ -19,7 +19,7 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from src.quobo.data_prep import _validate_dataset_paths  # noqa: E402 (needs sys.path)
+from src.quobo.data_prep import _validate_dataset_paths  # noqa: E402
 
 ANN = ROOT / "data" / "raw" / "annotations.json"
 IMAGES = ROOT / "data" / "raw" / "images"

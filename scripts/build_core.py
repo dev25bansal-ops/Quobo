@@ -18,7 +18,7 @@ import re
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,7 +30,7 @@ COVERAGE_MIN = 80  # H-03: first documented coverage gate (line + branch)
 
 
 def _run(cmd: list[str], **kw) -> tuple[int, str]:
-    proc = subprocess.run(cmd, capture_output=True, text=True, **kw)
+    proc = subprocess.run(cmd, capture_output=True, text=True, **kw, check=False)
     return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
 
 
@@ -93,11 +93,11 @@ def _record(
     duration: float,
     log_tail: str,
 ) -> None:
-    ts = datetime.now().strftime("%Y-%m-%d %M:%S")
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %M:%S")
     commit = _git_commit()
 
     meta = {
-        "timestamp": datetime.now().astimezone().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "profile": profile,
         "status": status,
         "tests_passed": counts["passed"],
@@ -240,8 +240,10 @@ def run(profile: str = "full", python: str = "") -> int:
                 [
                     python,
                     "-c",
-                    "import sys; sys.path.insert(0,'src'); "
-                    "import quobo.config_schema as c; c.QuoboConfig",
+                    (
+                        "import sys; sys.path.insert(0,'src'); "
+                        "import quobo.config_schema as c; c.QuoboConfig"
+                    ),
                 ]
             )
             schema_ok = code == 0

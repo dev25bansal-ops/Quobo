@@ -17,8 +17,8 @@ def test_onnx_pipeline_parity(tmp_path):
     pytest.importorskip("skl2onnx", reason="edge extra not installed")
     from skl2onnx import to_onnx
     from skl2onnx.common.data_types import FloatTensorType
-    from sklearn.pipeline import Pipeline
     from sklearn.decomposition import PCA
+    from sklearn.pipeline import Pipeline
     from sklearn.preprocessing import StandardScaler
     from sklearn.svm import SVC
 

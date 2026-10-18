@@ -14,7 +14,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.quobo.qsvm import fit_scale_for_feature_map
 
-
 # ---------- QML-001: scaler fit on train only ----------
 
 

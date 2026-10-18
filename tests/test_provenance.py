@@ -308,3 +308,49 @@ def test_main_prediction_mode_renders_run_provenance(tmp_path, monkeypatch):
     html = (tmp_path / "results" / "dashboard" / "dashboard.html").read_text(encoding="utf-8")
     assert "run_ok" in html
     assert "No observations" not in html
+
+
+# --------------------------------------------------------------------------- #
+# Q25: the group-leak counter must be persisted, and must be able to fail
+# --------------------------------------------------------------------------- #
+
+
+def _manifest(tmp_path, run_id):
+    path = tmp_path / "experiments" / run_id / RE.MANIFEST_NAME
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_manifest_records_zero_group_overlap_for_grouped_splits(tmp_path, monkeypatch):
+    """The leak-free protocol claims no photo's crops straddle train/test.
+
+    That claim was previously computed and thrown away, so nothing in the
+    published artifacts evidenced it. It must now be persisted as 0.
+    """
+    _patch_run(monkeypatch, tmp_path)
+    RE.run(_valid_cfg(), run_id="run_leak0", config_path="configs/x.yaml")
+    manifest = _manifest(tmp_path, "run_leak0")
+    assert manifest["status"] == "complete"
+    assert manifest["group_overlap_events"] == 0
+
+
+def test_group_overlap_counter_detects_a_non_grouped_splitter(tmp_path, monkeypatch):
+    """A guardrail that cannot fail is decoration.
+
+    Swap the group-aware splitter for a row-wise one (the regression a future
+    refactor to StratifiedKFold would introduce) and the manifest must record
+    the straddling source photos rather than reporting a clean run.
+    """
+    _patch_run(monkeypatch, tmp_path)
+
+    class _RowWiseSplit:
+        def __init__(self, **kwargs):
+            pass
+
+        def split(self, X, y=None, groups=None):
+            idx = np.arange(len(X))
+            return iter([(idx[:-3], idx[-3:])])
+
+    monkeypatch.setattr(RE, "GroupShuffleSplit", _RowWiseSplit)
+    RE.run(_valid_cfg(), run_id="run_leak1", config_path="configs/x.yaml")
+    manifest = _manifest(tmp_path, "run_leak1")
+    assert manifest["group_overlap_events"] > 0

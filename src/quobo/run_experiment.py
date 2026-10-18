@@ -196,6 +196,7 @@ def run(cfg: dict, run_id: str | None = None, config_path: str | None = None) ->
         "arms": list(cfg["experiment"]["arms"]),
         "n_repeats_requested": cfg["experiment"]["n_repeats"],
         "reps_completed": 0,
+        "group_overlap_events": 0,
         "artifacts": {},
         "note": (
             "Consumers must require status=='complete' and verify the "
@@ -238,7 +239,11 @@ def _run_body(cfg: dict, run_dir: Path, stamp: str, manifest: dict) -> pd.DataFr
     y = np.asarray(raw["label"].values)
     groups = np.array([crop_image_group(p) for p in raw["crop_path"]])
     n_comp = cfg["features"]["pca_components"]
-    n_group_leaks = 0
+    # (source photo, repeat) pairs that straddled train and test. GroupShuffleSplit
+    # makes this structurally impossible, so the value is expected to stay 0; it is
+    # persisted into the manifest because the leak-free claim should be evidenced by
+    # the run's own artifacts rather than asserted by a code comment (Q25).
+    n_overlap_events = 0
 
     k = cfg["selection"]["k"]
     rows = []
@@ -257,7 +262,13 @@ def _run_body(cfg: dict, run_dir: Path, stamp: str, manifest: dict) -> pd.DataFr
         Xtr = Xtr_p
         overlap = set(groups[idx_tr]) & set(groups[idx_te])
         if overlap:
-            n_group_leaks += len(overlap)
+            n_overlap_events += len(overlap)
+            log.error(
+                "rep %d: %d source photos straddle train/test — leak-free invariant "
+                "violated, arm comparisons are not valid for this repeat",
+                rep,
+                len(overlap),
+            )
         # stratification report (group splits can drift from crop-level balance)
         if rep == 0:
             log.info(
@@ -377,6 +388,7 @@ def _run_body(cfg: dict, run_dir: Path, stamp: str, manifest: dict) -> pd.DataFr
         log_to_mlflow(results, cfg, run_dir)
 
     manifest["reps_completed"] = n_reps_done
+    manifest["group_overlap_events"] = n_overlap_events
     log.info("total wall time: %.1f min", (time.perf_counter() - t_start) / 60)
     return results
 
