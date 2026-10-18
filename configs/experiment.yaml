@@ -28,14 +28,19 @@ qubo:
   mi_bins: 16                  # quantile bins for MI estimation
   sa_sweeps: 20000             # simulated annealing sweeps per alpha trial
   sa_repeats: 10
+  parallel: true               # threaded coarse alpha scan (~3x; result-identical)
 
 qsvm:
   reps: 1
   entanglement: linear         # 7 ZZ pairs vs full's 28 — lower concentration risk
   max_train_samples: 400       # kernel matrix is O(n^2); subsample beyond this
   test_fraction: 0.25
+  tune_rbf: true               # include tuned RBF-SVM baseline (Huang 2021 caveat)
+  max_qsvm_features: 20        # skip QSVM above this (statevector 2^k memory limit)
 
 experiment:
   n_repeats: 5                 # repeated splits, identical budget across arms A-D
   arms: [A_random, B_pca, C_mi, D_qubo]
   baselines: [rbf_svm]         # mandatory per Huang 2021 caveat
+  early_stop: false            # statistical early stopping (Enhancement 3)
+  track_mlflow: false          # MLflow tracking (Enhancement 10; needs the track extra)
