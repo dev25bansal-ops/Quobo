@@ -118,7 +118,13 @@ def build_head(cfg: dict) -> dict:
     pca = PCA(n_components=n_comp, random_state=seed).fit(scaler.transform(Xtr))
     Xtr50 = pca.transform(scaler.transform(Xtr))
     Xte50 = pca.transform(scaler.transform(Xte))
-    assert np.allclose(Xtr50, Xtr_p, atol=1e-4), "export PCA != experiment PCA"
+    # Guard the deployed ONNX head matches the experiment's leak-free PCA.
+    # Use a real raise, not assert — assert is stripped under python -O.
+    if not np.allclose(Xtr50, Xtr_p, atol=1e-4):
+        raise RuntimeError(
+            "export PCA != experiment PCA: the deployed ONNX head would not "
+            "match the trained model (scaler/PCA/seed divergence)"
+        )
 
     # --- SVM head trained on the 8 selected components ---
     rbf = SVC(kernel="rbf", class_weight="balanced", random_state=seed).fit(Xtr50[:, sel], ytr)

@@ -16,7 +16,7 @@ import logging
 import os
 import tempfile
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -179,7 +179,7 @@ def run(cfg: dict, run_id: str | None = None, config_path: str | None = None) ->
     model = validate_config(cfg)
     cfg = model.model_dump()
     log.info("config validated against schema; using normalized values")
-    stamp = run_id or datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    stamp = run_id or datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     run_dir = ROOT / "experiments" / stamp
     run_dir.mkdir(parents=True, exist_ok=True)
     manifest = {
@@ -187,7 +187,7 @@ def run(cfg: dict, run_id: str | None = None, config_path: str | None = None) ->
         "implementation": MANIFEST_IMPLEMENTATION,
         "run_id": stamp,
         "status": "running",
-        "started_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "finished_at": None,
         "config_sha256": _config_digest(cfg),
         "config_path": config_path,
@@ -210,7 +210,7 @@ def run(cfg: dict, run_id: str | None = None, config_path: str | None = None) ->
         manifest.update(
             {
                 "status": "failed",
-                "finished_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+                "finished_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 "error": f"{type(exc).__name__}: {exc}",
                 "artifacts": _artifact_inventory(run_dir),
             }
@@ -220,7 +220,7 @@ def run(cfg: dict, run_id: str | None = None, config_path: str | None = None) ->
     manifest.update(
         {
             "status": "complete",
-            "finished_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "finished_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "artifacts": _artifact_inventory(run_dir),
         }
     )
