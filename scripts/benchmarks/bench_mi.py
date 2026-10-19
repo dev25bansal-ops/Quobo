@@ -1,8 +1,19 @@
-import numpy as np
+"""Benchmark: MI-table build — per-pair sklearn loop vs precomputed contingency.
+
+Run from the repo root:
+    .venv/Scripts/python.exe scripts/benchmarks/bench_mi.py
+"""
+
+import sys
 import time
-from sklearn.metrics import mutual_info_score
-from src.quobo.selection import _discretize
 from itertools import combinations
+from pathlib import Path
+
+import numpy as np
+from sklearn.metrics import mutual_info_score
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from src.quobo.selection import _discretize  # noqa: E402
 
 rng = np.random.default_rng(42)
 X = rng.normal(size=(400, 50))
