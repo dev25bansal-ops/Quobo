@@ -221,11 +221,42 @@ def run_raw_embeddings(cfg: dict) -> pd.DataFrame:
             with open(meta_path, encoding="utf-8") as f:
                 meta = json.load(f)
             if meta.get("crops_fingerprint") == fp and meta.get("crops_content_fingerprint") == cfp:
-                log.info("raw embeddings cache hit: %s", out_npz.name)
-                return load_raw_embeddings(out_npz)
-            log.warning("raw cache identity mismatch — recomputing embeddings")
-        except (FileNotFoundError, KeyError, json.JSONDecodeError):
-            log.warning("raw cache meta missing — recomputing embeddings")
+                # The backbone decides the embeddings, so a changed backbone
+                # must invalidate the cache (pca_components does not — the raw
+                # cache is PCA-free).
+                if meta.get("features_config", {}).get("backbone") != _features_config_identity(
+                    cfg
+                ).get("backbone"):
+                    log.warning(
+                        "raw cache was built with a different backbone "
+                        "(%s vs %s) — recomputing embeddings",
+                        meta.get("features_config", {}).get("backbone"),
+                        _features_config_identity(cfg).get("backbone"),
+                    )
+                    raise ValueError("raw cache backbone mismatch")
+                # The sidecar meta is not evidence on its own: the .npz payload
+                # must agree with it. A truncated/foreign npz whose meta still
+                # matches would otherwise be served as a cache hit (this repo
+                # actually shipped a 1x1 npz with an 1836-sample meta), and
+                # the run would die later with "train set will be empty".
+                cached = load_raw_embeddings(out_npz)
+                n_rows = len(cached)
+                expected = int(meta.get("n_samples", -1))
+                if n_rows != expected or n_rows != cfp["n_crops"]:
+                    log.warning(
+                        "raw cache payload disagrees with its metadata "
+                        "(npz rows=%d, meta n_samples=%s, crops=%d) — recomputing embeddings",
+                        n_rows,
+                        expected,
+                        cfp["n_crops"],
+                    )
+                else:
+                    log.info("raw embeddings cache hit: %s", out_npz.name)
+                    return cached
+            else:
+                log.warning("raw cache identity mismatch — recomputing embeddings")
+        except (FileNotFoundError, KeyError, json.JSONDecodeError, ValueError, OSError):
+            log.warning("raw cache meta missing or unreadable — recomputing embeddings")
     # The extractor validates checkpoint identity; a cache miss alone must not
     # discard resumable work. Keep it until the final cache and metadata exist.
     model = load_model()
