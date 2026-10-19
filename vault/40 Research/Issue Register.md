@@ -8,8 +8,10 @@ source: research/ISSUE_REGISTER.md
 
 Mirror of `research/ISSUE_REGISTER.md` (authoritative source). State 2026-09-20.
 For the full audited catalog with severity/priority/effort/timeline see
-**`research/ISSUE_CATALOG.md`** (19 findings: 0 Critical, 3 High, 10 Medium, 6 Low;
-security audit verified clean).
+**`research/ISSUES_CATALOG_2026-10-19.md`** — the current catalog (11 open
+issues: 0 Critical, 2 High, 5 Medium, 4 Low; 24 issues fixed in the
+2026-10-18/19 hardening pass). The older `research/ISSUE_CATALOG.md`
+(19 findings, 2026-09-20) is the pre-session baseline.
 
 ## Resolved highlights
 
@@ -24,15 +26,27 @@ security audit verified clean).
 - **PKG-001** packaging: `pip install -e .` + `constraints.txt`.
 - **OPEN-8** folder-mode zone bug found & fixed (zone = grandparent dir).
 
+### 2026-10-18/19 hardening pass (18 commits)
+
+Security: HTML-injection in the dashboard `source_label` and path traversal via
+`run_id` in `find_complete_run` (both fixed). Correctness: non-contiguous
+integer labels produced wrong MI; ONNX parity compared bytes to str and
+silently reported 0%; `assert`-based PCA parity check vanished under `-O`;
+`confusion_analysis` consumed incomplete runs; `n_reps_done` overcounted a
+crashed rep. Hardening: naive datetimes, `zip(strict=True)`, atomic writes
+(`src/quobo/atomic.py`), TensorFlow pin alignment, `run_experiment --help` is
+now inert (argparse).
+
 ## Open — externally blocked (nothing code-side)
 
 | ID | Item | Blocker / action needed |
 |---|---|---|
-| OPEN-7 | CI never exercised | no GitHub remote — create repo + push; `.github/workflows/ci.yml` ready (pydantic added 2026-09-20) |
+| OPEN-7 | CI never exercised | **remote now exists** (`origin` → github.com/dev25bansal-ops/Quobo); push to trigger `.github/workflows/ci.yml` |
 | OPEN-9 | Real Gwalior map | need ward-boundary GeoJSON (GMC/Smart City SPV/GADM) → Folium swap |
 | OPEN-10 | TrashNet replication | ~2GB download + extract; harness ready (`crops_dir_override` + `configs/experiment_trashnet.yaml`) |
 | S3 | D-Wave QPU run | `DWAVE_API_TOKEN` from leap.dwavesys.com; `scripts/qpu_run.py` ready |
 | PRV-004 | legacy runs not consumable | re-run or `--mode demo-ground-truth` |
+| H-02 | no `v2.0-results` tag | only `v1.0-results` exists, and it predates the leak-free path — it cannot reproduce the v2 paper numbers. Tag HEAD after a clean end-to-end run. |
 
 ## Maintenance debt (minor)
 
@@ -43,10 +57,15 @@ security audit verified clean).
 - `.gitignore` extended (2026-09-20): `outputs/`, `.workbuddy-ai/`, stale
   `experiment_final_e2e_log.txt`, and Obsidian per-user state
   (`vault/.obsidian/workspace*.json`, `graph.json`) — vault notes stay tracked.
-- pre-commit hook installed (`pre-commit install`, ruff env cached) — but the
-  tree has **no git remote** (OPEN-7), so it only guards local commits.
+- pre-commit hook installed (`pre-commit install`, ruff env cached). The hook's
+  pytest gate now uses `./.venv/Scripts/python.exe` — the bare system Python
+  lacked tensorflow and failed every commit at collection (fixed 2026-10-18).
 - Dead code: `data_prep.SUPERCAT_MAP_URL` unused; `load_supercat_map(cfg_classes)`
   param unused; `qsvm.max_memory_mb` schema key has no consumer.
-- `config.KNOWN_SUBKEYS` ↔ `config_schema` manual sync — watch on every config change.
+- `config.KNOWN_SUBKEYS` is now derived from `config_schema` at import time
+  (no manual sync needed).
+- **Open**: `qpu_run.py` still uses the legacy leaky `run_features` (H-01) and
+  writes its result non-atomically (M-01) — both blocked on a test-mock refactor
+  in `tests/test_qpu_run.py`.
 
 Related: [[Build Status]] · [[Continuous Build]]
