@@ -124,6 +124,13 @@ refit on train per split; Holm-corrected Wilcoxon vs QUBO-8):**
 | MI-8 | 37.0±3.0 | 39.5±3.6 | 39.3±3.0 | 0.541 (tie) |
 | Random-8 | 31.3±2.8 | 32.2±3.0 | 32.9±3.5 | <0.001 (worse) |
 
+*QSVC note.* The Full-50 QSVC cell is "—" because the statevector kernel is
+gated at `qsvm.max_qsvm_features` (default 20) — a configurable memory guard
+(`2^k` statevectors), not a 50-qubit impossibility: 20 qubits is the practical
+ceiling, and Full-50 exceeds it. Arms with k≤8 are unaffected. The gate is
+`src/quobo/qsvm.py` (`run_qsvm = k <= cfg["qsvm"]["max_qsvm_features"]`) and
+the ceiling itself is configurable in `configs/*.yaml`.
+
 **Findings.** (1) Selection quality dominates: every principled arm beats random by ~8–9
 points on every classifier. (2) Under the strict leak-free protocol, QUBO-8, mRMR-8, LASSO-8,
 PCA-8, and MI-8 are statistically indistinguishable (all Holm p>0.5 vs QUBO) — **QUBO matches
