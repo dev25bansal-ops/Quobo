@@ -93,6 +93,9 @@ def select_random(X, y, k, seed):
 
 def select_pca_order(X, y, k, seed=None):
     # PCA columns are already variance-ordered: first k = arm B
+    n_features = int(np.asarray(X).shape[1])
+    if k > n_features:
+        raise ValueError(f"selection budget k ({k}) exceeds the candidate pool size ({n_features})")
     return list(range(k))
 
 
@@ -283,6 +286,18 @@ def select_mrmr(X, y, k, seed=None, n_bins=16):
 
 
 def select_features(arm: str, X, y, k, seed, cfg_qubo: dict) -> tuple[list[int], dict]:
+    # Every arm must select EXACTLY k features from the same pool, or the
+    # paper's arm-comparability claim is void. A pool smaller than k is not
+    # executable, and the arms failed differently without this check
+    # (random raised, PCA returned out-of-range indices, MI returned < k).
+    n_features = int(np.asarray(X).shape[1])
+    if k < 1:
+        raise ValueError(f"selection budget k must be >= 1, got {k}")
+    if k > n_features:
+        raise ValueError(
+            f"selection budget k ({k}) exceeds the candidate pool size "
+            f"({n_features}); every arm must select exactly k features"
+        )
     if arm == "A_random":
         return select_random(X, y, k, seed), {}
     if arm == "B_pca":
