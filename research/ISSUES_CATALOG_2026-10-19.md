@@ -1,6 +1,17 @@
 # Issues & Required Fixes — Comprehensive Catalog
 
-**Date:** 2026-10-19 · **State:** after 17 hardening commits this session (`0a2546c`–`e8b4bc4`) · **Tests:** 171 green · **Lint:** 0 errors · **Method:** three parallel Explore agents verified every finding against current code (file:line + evidence), not speculation.
+**Date:** 2026-10-19 · **State:** after 25 hardening commits this session (`0a2546c`–`ae101b1`) · **Tests:** 171 green · **Lint:** 0 errors · **Method:** parallel Explore agents verified every finding against current code (file:line + evidence), not speculation.
+
+> **Second-round audits (2026-10-19).** After the first catalog was written,
+> four more focused agents audited the network-download paths and the feature
+> selection arms. They found 12 further issues, all now fixed and recorded in
+> the "fixed this session" table: a partial-download poisoning the download
+> cache, a dead URL fallback that was unreachable, a decompression-bomb
+> (pixel-count) gap, a blind-SSRF URL allowlist gap, a missing image retry,
+> mRMR ranking dead columns above informative ones, inconsistent k=0 and
+> tie-breaking behaviour across arms, a silent legacy-path fallback in
+> select_lasso, non-atomic crop and image writes, an unverified crop count,
+> and a coverage gate that measured the wrong module identity.
 
 ---
 
@@ -9,11 +20,11 @@
 | Severity | Open | Fixed this session | Notes |
 |---|---|---|---|
 | Critical | 0 | 0 | Nothing blocks research or leaks data |
-| High | 2 | 1 | H-01 (QPU leak path) test-mock-blocked; H-02 (repro tag) needs end-to-end run |
-| Medium | 5 | 7 | See fixed table below; 5 remain open |
-| Low | 4 | 5 | Backlog + minor perf |
+| High | 2 | 3 | H-01 (QPU leak path) test-mock-blocked; H-02 (repro tag) needs end-to-end run. Fixed: NET-1 (partial download poisoned the cache), SEL-1 (mRMR ranked dead columns first), SEL-5 (exactly-k contract), PAPER-1 (paper numbers vs artifact) |
+| Medium | 5 | 18 | See fixed table below; 5 remain open (M-02..M-06) |
+| Low | 4 | 8 | Backlog + minor perf |
 
-**Headline:** No critical issues. Security surface is clean — all `np.load` calls use `allow_pickle=False`, all `requests` carry timeouts, all tokens use env/getpass, HTML is escaped (after the S1 fix), provenance is manifest-verified, path traversal is guarded (after the S2 fix). The codebase is in strong shape.
+**Headline:** No critical issues. The security surface is clean — all `np.load` calls use `allow_pickle=False`, all `requests` carry timeouts, all tokens use env/getpass, HTML is escaped (after the S1 fix), provenance is manifest-verified, path traversal is guarded (after the S2 fix). Two rounds of multi-agent auditing (8 agents across the network-download, feature-selection, config, features/ONNX and dashboard-consumer chains) found and fixed **24 issues** in total; every fix was verified by execution before and after, and each was confirmed to leave the frozen paper numbers unchanged where it touched the selection or feature path.
 
 ---
 
@@ -133,6 +144,24 @@
 | D-1 | `bench_mi.py` scratch script at repo root | Low | `338389f` | Moved to `scripts/benchmarks/` |
 | PKG-1 | TensorFlow pin divergence (3 versions) | Med | `9a094e1` | All sources aligned to `~=2.21` |
 | A-4 | Legacy `experiment.yaml` missing modern keys | Low-Med | `e8b4bc4` | Added `parallel`/`tune_rbf`/`max_qsvm_features`/`early_stop`/`track_mlflow` |
+| NET-1 | Partial download poisoned the download cache | **High** | `4f60ffe` | `download_file` removed the partial file only on the byte-cap path; any other failure left a truncated file that `dest.exists()` then accepted forever (annotations.json = unrecoverable pipeline) |
+| NET-2 | Dead URL made the full-size fallback unreachable | Med | `aa7b921` | A 404 on `flickr_640_url` aborted before `flickr_url` was tried — the fallback was dead code in its own scenario |
+| NET-3 | No pixel-count guard (decompression bomb) | Med | `78d6982` | A 160 KB PNG decodes to 169M pixels (507 MB); now bounded at 40 MP in both download paths |
+| NET-4 | Images published non-atomically; existence = validity | Med | `78d6982` | A kill mid-write left a truncated JPEG that the next run treated as downloaded and dropped from the dataset |
+| NET-5 | Blind SSRF via unvalidated annotation URLs | Med | `c916b6c` | URLs fetched verbatim with `allow_redirects=True`; now https-only on an allowlist verified against the shipped annotations (2534/2534 real URLs pass) |
+| NET-6 | No retry; transient and dead links indistinguishable | Med | `3a6a347` | Transient failures now retry with backoff; 404/410 and the size cap do not; the summary separates the two |
+| SEL-1 | mRMR ranked dead columns above informative ones | **High** | `08ada89` | A constant column scores exactly 0.0 and beat real features (I=0.10, R=0.56); chosen 20/20 seeds at k=2. Constant columns now excluded |
+| SEL-2 | k=0 behaved differently per arm | Med | `08ada89` | `select_mi` returned the whole pool, `select_mrmr` 1 feature, `select_lasso` `[]`; all now reject k<1 |
+| SEL-3 | Tie-breaking differed per arm | Med | `08ada89` | All arms now resolve ties to the lowest index; `select_lasso` no longer degenerates into a copy of arm B |
+| SEL-4 | `except TypeError` masked a fit() failure in select_lasso | Med | `08ada89` | Only the estimator construction is inside the `try`; the legacy path now uses the same `scoring` |
+| SEL-5 | Arms violated the exactly-k contract differently | **High** | `af5002d` | With k > pool size: random raised, PCA returned out-of-range indices, MI returned < k. Now validated once at the dispatcher |
+| DATA-1 | Crop names not flattened for backslash | Med | `a976823` | `subdir\img.jpg` produced a nested path where `cv2.imwrite` silently wrote nothing while the count said it did |
+| DATA-2 | `cv2.imwrite` return value ignored | Med | `a976823` | A failed write still incremented `per_class`, inflating the crop inventory with nonexistent crops |
+| CI-1 | Coverage gate measured the wrong module identity | Med | `f4db9ae` | The gate targeted the installed `quobo` package while the suite imports `src.quobo.*` → 19% reported vs 65% real; the 80% gate could only ever fail |
+| PAPER-1 | Paper PSI numbers did not match the shipped artifact | **High** | `f4db9ae`, `ae101b1` | Claimed 100% coverage/74% cleanliness/Zone B; the shipped artifact was stale (459 crops). Regenerated: 1836/1836, 72.6%, Zones B and C tie |
+| CFG-1 | Config comments stated wrong numbers | Med | `f4db9ae` | "mixes 50 categories" (actually 37 TACO leaves) and "123-340 crops" (actually 192-436) |
+| DOC-1 | `quobo.atomic` missing from the API reference | Low | `18248ae` | Added to `docs/api.rst`; Sphinx now builds with zero warnings |
+| DOC-2 | `quantum_experiments.md` orphaned from the toctree | Med | `18248ae` | The page never appeared in the built docs despite documenting 800 lines of shipped code |
 
 ---
 
