@@ -312,6 +312,13 @@ def main() -> int:
     args = ap.parse_args()
 
     cfg = load_config(args.config)
+    # Enforce the full schema here too: the export is a separate entry point
+    # from the experiment runner, and without validation an out-of-range
+    # value (e.g. pca_components=500) would silently produce a 500-dim
+    # exported head that contradicts the validated experiment path.
+    from src.quobo.config import validate_config
+
+    validate_config(cfg)
     OUT.mkdir(parents=True, exist_ok=True)
     manifest = build_head(cfg)
     if args.backbone:

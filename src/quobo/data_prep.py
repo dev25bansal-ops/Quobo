@@ -395,9 +395,10 @@ if __name__ == "__main__":
     import sys
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    from .config import load_config
+    from .config import load_config, validate_config
 
     cfg = load_config(sys.argv[1] if len(sys.argv) > 1 else "configs/experiment_6class.yaml")
+    validate_config(cfg)  # enforce range/cross-field rules, not just key names
     s = run_data_prep(cfg)
     print("per-class counts:", s["per_class"])
     print("removed (below min):", s["removed_classes"])
