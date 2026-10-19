@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import shutil
+import time
 from collections import Counter, defaultdict
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
@@ -31,6 +32,9 @@ MAX_IMG_BYTES = 20 * 1024 * 1024  # flickr_640 images are ~90 KB; cap hostile re
 # originals are at most a few MP, so 40 MP is far above any legitimate image
 # and far below a decompression-bomb footprint.
 MAX_IMAGE_PIXELS = 40_000_000
+# Retries per image for transient failures (timeout, connection reset, 5xx).
+# 404/410 are permanent and are not retried.
+IMG_RETRIES = 3
 # Allowed image hosts. TACO serves images from Flickr's CDN (*.staticflickr.com)
 # and the OLM S3 bucket (olm-s3.s3.eu-west-1.amazonaws.com) — verified against
 # the shipped annotations.json. The annotations file is treated as untrusted
@@ -142,6 +146,8 @@ def download_taco_images(ann_path: Path, images_dir: Path) -> None:
 
     session = requests.Session()
     failed = []
+    dead_links = 0
+    transient = 0
     for im, p in tqdm(todo, desc="flickr"):
         # flickr_640_url is a fast ~90KB resize; flickr_url / olm-s3 entries are
         # multi-MB originals served at ~40KB/s — not worth the wait for 224px crops
@@ -155,41 +161,73 @@ def download_taco_images(ann_path: Path, images_dir: Path) -> None:
             failed.append((im["file_name"], str(exc)[:60]))
             continue
         p.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with session.get(url, timeout=30, stream=True) as r:
-                r.raise_for_status()
-                received = 0
-                payload = io.BytesIO()
-                for chunk in r.iter_content(chunk_size=1 << 16):
-                    received += len(chunk)
-                    if received > MAX_IMG_BYTES:
-                        raise ValueError(f"image exceeds {MAX_IMG_BYTES} byte cap")
-                    payload.write(chunk)
-                img = Image.open(payload)
-                # Pixel guard: the byte cap only bounds the COMPRESSED size.
-                # A small PNG can decode to a huge bitmap (e.g. 518 KB ->
-                # 13000x13000 = 507 MB), so bound the decoded dimensions too.
-                if img.width * img.height > MAX_IMAGE_PIXELS:
-                    raise ValueError(
-                        f"image {img.width}x{img.height} exceeds the "
-                        f"{MAX_IMAGE_PIXELS} pixel budget"
-                    )
-                img.load()
-                # Publish atomically: a half-written image at the final path
-                # would be treated as downloaded on the next run (p.exists())
-                # and silently dropped from the dataset forever.
-                temp = p.with_name(p.name + ".part")
-                try:
-                    img.save(temp)
-                    os.replace(temp, p)
-                finally:
-                    temp.unlink(missing_ok=True)
-        except Exception as e:  # noqa: BLE001 — dead Flickr links are expected
-            failed.append((im["file_name"], str(e)[:60]))
+        # Retry transient failures (timeout, reset, 5xx) with backoff. A
+        # single 30 s timeout on one of 1,500 images would otherwise drop
+        # that image from the run's crop counts, and the pipeline would
+        # continue over a silently degraded dataset. 404/410 are permanent
+        # and are not retried.
+        last_err = ""
+        for attempt in range(IMG_RETRIES):
+            try:
+                with session.get(url, timeout=30, stream=True) as r:
+                    r.raise_for_status()
+                    received = 0
+                    payload = io.BytesIO()
+                    for chunk in r.iter_content(chunk_size=1 << 16):
+                        received += len(chunk)
+                        if received > MAX_IMG_BYTES:
+                            raise ValueError(f"image exceeds {MAX_IMG_BYTES} byte cap")
+                        payload.write(chunk)
+                    img = Image.open(payload)
+                    # Pixel guard: the byte cap only bounds the COMPRESSED size.
+                    # A small PNG can decode to a huge bitmap (e.g. 518 KB ->
+                    # 13000x13000 = 507 MB), so bound the decoded dimensions too.
+                    if img.width * img.height > MAX_IMAGE_PIXELS:
+                        raise ValueError(
+                            f"image {img.width}x{img.height} exceeds the "
+                            f"{MAX_IMAGE_PIXELS} pixel budget"
+                        )
+                    img.load()
+                    # Publish atomically: a half-written image at the final path
+                    # would be treated as downloaded on the next run (p.exists())
+                    # and silently dropped from the dataset forever.
+                    temp = p.with_name(p.name + ".part")
+                    try:
+                        # format= is required: the .part suffix is not a
+                        # format PIL can infer from.
+                        img.save(temp, format="JPEG")
+                        os.replace(temp, p)
+                    finally:
+                        temp.unlink(missing_ok=True)
+                last_err = ""
+                break
+            except Exception as e:  # noqa: BLE001 — dead Flickr links are expected
+                last_err = f"{type(e).__name__}: {e}"[:60]
+                if isinstance(e, ValueError) or "404" in last_err or "410" in last_err:
+                    break  # permanent: size cap, or the photo is gone
+                if attempt < IMG_RETRIES - 1:
+                    time.sleep(2 * (attempt + 1))
+        if last_err:
+            failed.append((im["file_name"], last_err))
+            if "404" in last_err or "410" in last_err:
+                dead_links += 1
+            else:
+                transient += 1
     if failed:
         log.warning("%d images failed (dead Flickr links):", len(failed))
         for fn, err in failed[:10]:
             log.warning("  %s: %s", fn, err)
+    if transient or dead_links:
+        # Distinguish a permanently removed photo from a transient failure —
+        # a degraded dataset must not pass silently.
+        log.warning(
+            "image download outcome: %d permanently dead (404/410, not retried), "
+            "%d still failing after %d attempts. Those images are absent from "
+            "the dataset; re-run to recover the transient ones.",
+            dead_links,
+            transient,
+            IMG_RETRIES,
+        )
 
 
 def record_provenance(ann_path: Path, raw_dir: Path) -> dict:
