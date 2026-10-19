@@ -26,6 +26,11 @@ TACO_URL = "https://github.com/pedropro/TACO/raw/master/data/annotations.json"
 
 MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024  # annotations.json is ~10 MB; anything bigger is wrong
 MAX_IMG_BYTES = 20 * 1024 * 1024  # flickr_640 images are ~90 KB; cap hostile redirects
+# Decoded-pixel budget. The byte cap only bounds the COMPRESSED size: a small
+# PNG can decode to a huge bitmap (518 KB -> 13000x13000 = 507 MB). TACO
+# originals are at most a few MP, so 40 MP is far above any legitimate image
+# and far below a decompression-bomb footprint.
+MAX_IMAGE_PIXELS = 40_000_000
 
 
 def download_file(url: str, dest: Path, desc: str = "") -> Path:
@@ -125,8 +130,24 @@ def download_taco_images(ann_path: Path, images_dir: Path) -> None:
                         raise ValueError(f"image exceeds {MAX_IMG_BYTES} byte cap")
                     payload.write(chunk)
                 img = Image.open(payload)
+                # Pixel guard: the byte cap only bounds the COMPRESSED size.
+                # A small PNG can decode to a huge bitmap (e.g. 518 KB ->
+                # 13000x13000 = 507 MB), so bound the decoded dimensions too.
+                if img.width * img.height > MAX_IMAGE_PIXELS:
+                    raise ValueError(
+                        f"image {img.width}x{img.height} exceeds the "
+                        f"{MAX_IMAGE_PIXELS} pixel budget"
+                    )
                 img.load()
-                img.save(p)
+                # Publish atomically: a half-written image at the final path
+                # would be treated as downloaded on the next run (p.exists())
+                # and silently dropped from the dataset forever.
+                temp = p.with_name(p.name + ".part")
+                try:
+                    img.save(temp)
+                    os.replace(temp, p)
+                finally:
+                    temp.unlink(missing_ok=True)
         except Exception as e:  # noqa: BLE001 — dead Flickr links are expected
             failed.append((im["file_name"], str(e)[:60]))
     if failed:

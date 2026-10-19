@@ -29,6 +29,10 @@ log = logging.getLogger("fetch_missing")
 
 MAX_DIM = 1024
 MAX_IMG_BYTES = 20 * 1024 * 1024  # ~14 MB is the largest legitimate olm-s3 original
+# Decoded-pixel budget: the byte cap bounds only the COMPRESSED size, so a
+# small PNG can still decode to a huge bitmap. 8 concurrent workers make the
+# aggregate footprint the real risk.
+MAX_IMAGE_PIXELS = 40_000_000
 WORKERS = 8
 RETRIES = 4
 
@@ -59,6 +63,14 @@ def fetch_one(im: dict, dest: Path) -> tuple[str, str]:
                             raise ValueError(f"image response exceeds {MAX_IMG_BYTES} byte cap")
                         payload.write(chunk)
                 img = Image.open(payload)
+                # Pixel guard: the byte cap only bounds the COMPRESSED size. A
+                # small PNG can decode to a huge bitmap (518 KB -> 13000x13000
+                # = 507 MB); with 8 concurrent workers that is several GB.
+                if img.width * img.height > MAX_IMAGE_PIXELS:
+                    raise ValueError(
+                        f"image {img.width}x{img.height} exceeds the "
+                        f"{MAX_IMAGE_PIXELS} pixel budget"
+                    )
                 img.load()
                 img = img.convert("RGB")
                 if max(img.size) > MAX_DIM:
