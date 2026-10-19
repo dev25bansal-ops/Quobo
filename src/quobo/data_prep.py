@@ -31,6 +31,37 @@ MAX_IMG_BYTES = 20 * 1024 * 1024  # flickr_640 images are ~90 KB; cap hostile re
 # originals are at most a few MP, so 40 MP is far above any legitimate image
 # and far below a decompression-bomb footprint.
 MAX_IMAGE_PIXELS = 40_000_000
+# Allowed image hosts. TACO serves images from Flickr's CDN (*.staticflickr.com)
+# and the OLM S3 bucket (olm-s3.s3.eu-west-1.amazonaws.com) — verified against
+# the shipped annotations.json. The annotations file is treated as untrusted
+# input (see _validate_dataset_paths), so its URLs are allowlisted too:
+# without this, a crafted file_name/URL could point the fetcher at a cloud
+# metadata endpoint (169.254.169.254) or an internal service.
+ALLOWED_IMAGE_HOSTS = ("staticflickr.com", "olm-s3.s3.eu-west-1.amazonaws.com")
+
+
+def _validate_image_url(url: str, context: str = "image") -> str:
+    """Reject a URL that is not https on an allowlisted host.
+
+    Returns the URL unchanged when acceptable; raises ValueError otherwise.
+    Subdomains of the allowed hosts are accepted (flickr uses farm1..farm66).
+
+    A string with no scheme is left alone: it cannot address a network host,
+    so it carries no SSRF risk — the request layer rejects it on its own."""
+    from urllib.parse import urlparse
+
+    if not url:
+        raise ValueError(f"empty {context} URL")
+    parsed = urlparse(url)
+    if not parsed.scheme:
+        # Not an absolute URL — not an SSRF vector. Leave it to the transport.
+        return url
+    if parsed.scheme != "https":
+        raise ValueError(f"{context} URL must use https, got {parsed.scheme!r}")
+    host = (parsed.hostname or "").lower()
+    if not any(host == allowed or host.endswith("." + allowed) for allowed in ALLOWED_IMAGE_HOSTS):
+        raise ValueError(f"{context} URL host {host!r} is not allowlisted")
+    return url
 
 
 def download_file(url: str, dest: Path, desc: str = "") -> Path:
@@ -117,6 +148,11 @@ def download_taco_images(ann_path: Path, images_dir: Path) -> None:
         url = im.get("flickr_640_url")
         if not url:
             failed.append((im["file_name"], "no-640-url"))
+            continue
+        try:
+            url = _validate_image_url(url, "flickr_640_url")
+        except ValueError as exc:
+            failed.append((im["file_name"], str(exc)[:60]))
             continue
         p.parent.mkdir(parents=True, exist_ok=True)
         try:

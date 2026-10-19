@@ -19,7 +19,7 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from src.quobo.data_prep import _validate_dataset_paths  # noqa: E402
+from src.quobo.data_prep import _validate_dataset_paths, _validate_image_url  # noqa: E402
 
 ANN = ROOT / "data" / "raw" / "annotations.json"
 IMAGES = ROOT / "data" / "raw" / "images"
@@ -43,6 +43,13 @@ def fetch_one(im: dict, dest: Path) -> tuple[str, str]:
     8-worker pool. Per-thread connection reuse is preserved by urllib3's
     per-host pooling inside each session."""
     urls = [u for u in (im.get("flickr_640_url"), im.get("flickr_url")) if u]
+    # The annotations file is untrusted input: allowlist the URL hosts so a
+    # crafted entry cannot point the fetcher at a cloud metadata endpoint or
+    # an internal service (SSRF).
+    try:
+        urls = [_validate_image_url(u, "image") for u in urls]
+    except ValueError as exc:
+        return "failed", str(exc)[:80]
     last_err = "no-url"
     for attempt in range(RETRIES):
         # A 404/410 on one candidate URL only means THAT url is dead; the
