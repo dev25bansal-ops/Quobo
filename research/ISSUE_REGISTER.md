@@ -1,5 +1,11 @@
 # Quobo — Issue Register (Post-Remediation, v3)
 
+> **Superseded in part (2026-10-19).** This register is the 2026-09-17 state.
+> The current catalog is **`research/ISSUES_CATALOG_2026-10-19.md`** (25 issues
+> fixed in the 2026-10-18/19 hardening pass; 11 still open). This file is kept
+> as the historical baseline and its Part-2 blockers are still accurate except
+> OPEN-7, corrected below.
+
 **Date:** 2026-09-17 · **State:** working tree after the provenance-hardening pass (Q04/Q05) on top of AUDIT_REPORT.md (tag `v1.0-results`) + the open-issue queue (OPEN-1..10)
 **Method:** every item verified against current code/artifacts. Resolved items listed with verification evidence; externally-blocked items listed with their exact blocker. Nothing here is committed — this is the uncommitted working tree.
 
@@ -51,11 +57,12 @@
 
 | ID | Item | Blocker | Ready-when |
 |---|---|---|---|
-| OPEN-7 | CI unexercised | No GitHub remote — **you** must create repo + push | `ci.yml` is complete; first push runs it |
+| OPEN-7 | CI unexercised | Remote now exists (`origin` → github.com/dev25bansal-ops/Quobo) — **push** to trigger the first CI run | `ci.yml` is complete; first push runs it |
 | OPEN-9 | Real Gwalior map | Ward-boundary GeoJSON — **you** must obtain (GMC/Smart City SPV/GADM) | Analytics ready; swap CSS grid for Folium when GeoJSON lands |
 | OPEN-10 | Cross-dataset replication | TrashNet ~2GB zip download (GitHub API rate-limited this session) + extraction | **Harness complete & proven**: `crops_dir_override` config key + `configs/experiment_trashnet.yaml` — one command after extraction |
 | S3 | D-Wave QPU run | DWAVE_API_TOKEN — **you** must register at dwave-system.com/leap | `scripts/qpu_run.py` verified to build the QUBO and skip green without token |
 | PRV-004 | Legacy run directories are not consumable in prediction mode | Historical `experiments/*` predate PRV-001/002: no `run_manifest.json`, no `test_ids` | Re-run the experiment (writes manifest + IDs), or use `--mode demo-ground-truth` to reproduce the demo dashboard from saved labels |
+| H-02 | No `v2.0-results` tag | Only `v1.0-results` exists and it predates the leak-free path, so it cannot reproduce the v2 paper numbers | Tag HEAD after a clean end-to-end run; document that `v1.0-results` reproduces only the superseded v1 table |
 
 ## Part 3 — Final state
 
