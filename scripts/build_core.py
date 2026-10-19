@@ -44,9 +44,21 @@ def _lock_ok() -> bool:
     return True
 
 
-def _acquire_lock() -> None:
+def _acquire_lock() -> bool:
+    """Create the lock file exclusively. Returns False if another build holds it.
+
+    Exclusive creation (mode 'x') is the atomic part: two builds starting in
+    the same instant both see the file absent, but only one can create it —
+    the other gets FileExistsError and skips. The previous write_text() was
+    truncate-in-place, so both would have succeeded and run concurrently.
+    """
     CI_DIR.mkdir(parents=True, exist_ok=True)
-    LOCK_FILE.write_text(datetime.now(timezone.utc).isoformat())
+    try:
+        with LOCK_FILE.open("x", encoding="utf-8") as f:
+            f.write(datetime.now(timezone.utc).isoformat())
+    except FileExistsError:
+        return False
+    return True
 
 
 def _release_lock() -> None:
@@ -219,7 +231,10 @@ def run(profile: str = "full", python: str = "") -> int:
 
     if not _lock_ok():
         return 0
-    _acquire_lock()
+    if not _acquire_lock():
+        # Another build took the lock between the check and the acquisition.
+        print("[skip] another build is running")
+        return 0
     start = time.time()
 
     try:
