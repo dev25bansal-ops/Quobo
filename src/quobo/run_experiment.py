@@ -31,23 +31,31 @@ from .selection import select_features
 log = logging.getLogger(__name__)
 
 ARM_LABELS = {
-    "A_random": "Random-8",
-    "B_pca": "PCA-8",
-    "C_mi": "MI-8",
-    "D_qubo": "QUBO-8",
-    "E_lasso": "LASSO-8",
-    "F_mrmr": "mRMR-8",
+    "A_random": "Random",
+    "B_pca": "PCA",
+    "C_mi": "MI",
+    "D_qubo": "QUBO",
+    "E_lasso": "LASSO",
+    "F_mrmr": "mRMR",
     # Z_full is the no-selection ceiling over the *actual* PCA pool; its label
     # is derived from features.pca_components at use time (see arm_label).
 }
 
 
-def arm_label(arm: str, n_comp: int) -> str:
-    """Display label for an arm. The Z_full ceiling is labelled ``Full-{n_comp}``
-    so it tracks the configured PCA pool instead of a hardcoded 50 (Q17/Q23)."""
+def arm_label(arm: str, n_comp: int, k: int | None = None) -> str:
+    """Display label for an arm.
+
+    The Z_full ceiling is labelled ``Full-{n_comp}`` so it tracks the
+    configured PCA pool instead of a hardcoded 50 (Q17/Q23). The selection
+    arms carry the *actual* feature budget: the base names above have no
+    suffix, and ``-{k}`` is appended, so a run with selection.k=12 reports
+    ``QUBO-12`` rather than the hardcoded ``QUBO-8`` (which misreported the
+    headline table's budget for every non-default k).
+    """
     if arm == "Z_full":
         return f"Full-{n_comp}"
-    return ARM_LABELS[arm]
+    base = ARM_LABELS[arm]
+    return f"{base}-{k}" if k is not None else base
 
 
 MANIFEST_NAME = "run_manifest.json"
@@ -282,7 +290,7 @@ def _run_body(cfg: dict, run_dir: Path, stamp: str, manifest: dict) -> pd.DataFr
             )
         for arm in cfg["experiment"]["arms"]:
             t0 = time.perf_counter()
-            label = arm_label(arm, n_comp)
+            label = arm_label(arm, n_comp, k)
             if arm == "Z_full":  # no-selection ceiling: all PCA components
                 sel = list(range(Xtr.shape[1]))  # all PCA components (Z_full ceiling)
                 sel_info = {"no_selection": True}
