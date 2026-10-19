@@ -43,6 +43,12 @@ experiment_leakfree_log.txt
 docs/_build/
 mlruns/
 results/onnx/__pycache__/
+# coverage data + python packaging output (regenerable)
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
 
 # dashboard web UI (npm build artifacts & deps)
 dashboard-ui/node_modules/
