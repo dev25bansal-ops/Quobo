@@ -146,15 +146,16 @@ advantage, at 8 qubits.
 results/confusion/.
 
 **PSI demo.** Majority-vote predictions over the 25 repeats of run
-`20260920_161627` drive the zone analytics. The shipped dashboard artifact
-(`results/dashboard/dashboard.html`, `zone_table.csv`) covers **459 of 1,836
-crops (25%)** — the crops that appeared in at least one repeat's held-out
-split, not the full set — giving city cleanliness **71.0%**, worst-zone PSI
-**500** (Zone C, cigarette-dominated), and per-zone PSI 154 / 436 / 500 / 167 /
-218 / 231. Bands across the six demo zones run **Unhealthy → Hazardous**
-(no "Good" zone occurs in this artifact). Zone assignment is a demo mapping of
-TACO image batches — TACO carries no GPS metadata — so these are relative
-demo values, not measured ward conditions (see Limitations).
+`20260920_161627` (RBF-SVM on QUBO-8) drive the zone analytics over **1,836 of
+1,836 crops (100% coverage)**: city cleanliness **72.6%**, worst-zone PSI
+**500** (Zones B and C tie, cigarette-dominated). Per-zone PSI 367 / 500 / 500
+/ 185 / 194 / 282, with bands **Hazardous, Hazardous, Hazardous, Unhealthy,
+Unhealthy, Very Unhealthy** — no "Good" zone occurs. Each zone's PSI is
+reported with a conditional 95% interval from per-class Wilson bounds
+(e.g. Zone A 367 [284–467]), which reflects sampling uncertainty only, not
+classifier error. Zone assignment is a demo mapping of TACO image batches —
+TACO carries no GPS metadata — so these are relative demo values, not measured
+ward conditions (see Limitations).
 
 ## 5. Discussion & Limitations
 
