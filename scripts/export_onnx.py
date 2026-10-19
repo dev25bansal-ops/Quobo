@@ -16,6 +16,12 @@ separately with --backbone (needs tf2onnx).
 
 Full edge chain: image -> backbone -> features_1280_50 -> [x50[:, sel]] -> head_svm_8.
 
+Input contract: the exported backbone takes RAW 0..255 RGB pixels and applies
+the `mobilenet_v2.preprocess_input` rescale to -1..1 INSIDE the ONNX graph, so
+its contract matches the training pipeline (which preprocesses before the
+backbone). Feeding a bare-backbone export raw pixels instead shifts the
+embedding by ~85% of its L2 norm and changes the predicted label.
+
 Usage:
     .venv/Scripts/python.exe -m scripts.export_onnx --config configs/experiment_6class.yaml
     .venv/Scripts/python.exe -m scripts.export_onnx --config ... --backbone
@@ -130,7 +136,19 @@ def build_head(cfg: dict) -> dict:
         )
 
     # --- SVM head trained on the 8 selected components ---
-    rbf = SVC(kernel="rbf", class_weight="balanced", random_state=seed).fit(Xtr50[:, sel], ytr)
+    # Use the SAME training subsample as the experiment's RBF baseline
+    # (src/quobo/qsvm.py: rng = default_rng(cfg["seed"] + rep_offset), then
+    # choice(len(ytr), size=max_train_samples, replace=False)). Fitting on the
+    # full train split instead produced a DIFFERENT model from the one the
+    # paper reports — measured 21% of test predictions disagreed.
+    max_train = cfg["qsvm"]["max_train_samples"]
+    if len(ytr) > max_train:
+        rng = np.random.default_rng(seed + 0)  # rep_offset = 0 (rep 0 split)
+        sub = rng.choice(len(ytr), size=max_train, replace=False)
+        Xtr_fit, ytr_fit = Xtr50[sub][:, sel], ytr[sub]
+    else:
+        Xtr_fit, ytr_fit = Xtr50[:, sel], ytr
+    rbf = SVC(kernel="rbf", class_weight="balanced", random_state=seed).fit(Xtr_fit, ytr_fit)
     classes = sorted({str(v) for v in y})
 
     # feature pipeline: 1280-d -> 50-d (StandardScaler + PCA as a Pipeline)
@@ -164,6 +182,14 @@ def build_head(cfg: dict) -> dict:
     sk_str = np.array([str(v) for v in sk_label])
     agree = float((onnx_str == sk_str).mean())
     log.info("head parity: %.2f%% (%d/%d)", agree * 100, (onnx_str == sk_str).sum(), len(sk_str))
+    # Enforce the parity, don't just report it: a bundle whose ONNX head
+    # disagrees with sklearn (version skew, e.g. the sklearn 1.9 probA_/probB_
+    # deprecation) must not be published and hashed into the manifest as valid.
+    if agree < 0.999:
+        raise RuntimeError(
+            f"ONNX head parity {agree * 100:.2f}% is below the 99.9% threshold — "
+            "the exported head does not reproduce the sklearn model; refusing to publish"
+        )
 
     return {
         "k": k,
@@ -175,18 +201,40 @@ def build_head(cfg: dict) -> dict:
         "explained_variance_pct": round(ev_pct, 2),
         "head_parity_pct": round(agree * 100, 2),
         "backbone_dim": X_raw.shape[1],
+        "input_contract": {
+            "backbone_mobilenet.onnx": "raw RGB 0..255, 224x224x3, NCHW float32; "
+            "the mobilenet_v2 preprocess_input rescale to -1..1 is inside the graph",
+            "features_1280_50.onnx": "1280-d backbone embedding, float32",
+            "head_svm_8.onnx": f"{k} PCA components at indices {sel}, float32 -> label string",
+        },
     }
 
 
 def try_backbone(cfg: dict) -> bool:
-    """Export MobileNetV2 (224x224x3 -> 1280) via tf2onnx; best-effort."""
+    """Export MobileNetV2 (224x224x3 -> 1280) via tf2onnx; best-effort.
+
+    The exported graph takes RAW 0..255 pixels and performs the
+    `mobilenet_v2.preprocess_input` rescale (-1..1) INSIDE the graph. The
+    training path applies that rescale in extract_embeddings (features.py), so
+    a bare MobileNetV2 export would silently disagree with training: measured
+    on real crops, feeding raw 0..255 instead of -1..1 shifts the embedding by
+    ~85% of its L2 norm and changes the predicted label on 5 of 6 crops.
+
+    Wrapping the backbone with the same preprocessing keeps the exported
+    model's input contract identical to the training pipeline.
+    """
     try:
         import tensorflow as tf
         import tf2onnx
 
         from src.quobo.features import load_model
 
-        model = load_model()
+        backbone = load_model()
+        # Keras 3 separates the preprocessing from the model, so rebuild the
+        # chain explicitly: rescale -> backbone.
+        inp = tf.keras.Input(shape=(224, 224, 3), dtype=tf.float32, name="image")
+        scaled = tf.keras.layers.Rescaling(scale=1.0 / 127.5, offset=-1.0)(inp)
+        model = tf.keras.Model(inp, backbone(scaled), name="quobo_backbone")
         spec = [tf.TensorSpec([1, 224, 224, 3], tf.float32, name="image")]
         conv = tf2onnx.convert.from_keras(
             model, input_signature=spec, output_path=str(OUT / "backbone_mobilenet.onnx")
