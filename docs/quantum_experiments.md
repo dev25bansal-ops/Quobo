@@ -178,9 +178,15 @@ all of these are mandatory together:
 
 - `--execute`
 - `--input <overlap-input.npz>`
+- `--output <new-result.json>` (required: the submitted job ID is recorded to
+  `<output>.job.json` *before* the result wait, so a failed retrieval can be
+  resumed instead of paying for a second job)
 - `--backend <explicit-backend>`
 - `--instance <explicit-instance-CRN>`
 - `--prompt-token` (interactive hidden prompt, token not saved or serialized)
+
+The token prompt **fails closed**: if the terminal cannot hide input, the
+harness raises rather than reading an echoed token.
 
 The library equivalent also requires an explicit token/backend/instance and
 `execute=True`. Hardware execution may incur provider usage/cost; it was not
