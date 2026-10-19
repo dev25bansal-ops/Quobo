@@ -228,14 +228,20 @@ def build_crops(
             cls_dir.mkdir(exist_ok=True)
             # dataset filenames are semi-trusted: verify the destination stays
             # inside the crops root (blocks path traversal via crafted file_name)
-            crop_name = (
-                f"{rec['file_name'].replace('/', '_').replace('.jpg', '')}_ann{ann['id']}.jpg"
-            )
+            # Both separators are flattened: a Windows-style "subdir\img.jpg"
+            # would otherwise create a nested path that does not exist, making
+            # cv2.imwrite fail silently and leaving the crop count inflated.
+            flat_name = rec["file_name"].replace("/", "_").replace("\\", "_")
+            crop_name = f"{flat_name.replace('.jpg', '')}_ann{ann['id']}.jpg"
             dest = cls_dir / crop_name
             if not dest.resolve().is_relative_to(out_dir.resolve()):
                 skipped["path_escape"] += 1
                 continue
-            cv2.imwrite(str(dest), img[y0:y1, x0:x1])
+            if not cv2.imwrite(str(dest), img[y0:y1, x0:x1]):
+                # imwrite returns False on failure (unwritable path, bad codec)
+                # and writes nothing — never count a crop that was not saved.
+                skipped["write_failed"] += 1
+                continue
             per_class[coarse] += 1
 
     # drop classes below the minimum count
