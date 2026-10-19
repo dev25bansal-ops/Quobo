@@ -100,8 +100,17 @@ def select_pca_order(X, y, k, seed=None):
 
 
 def select_mi(X, y, k, seed=None):
+    n_features = int(np.asarray(X).shape[1])
+    if k < 1:
+        raise ValueError(f"selection budget k must be >= 1, got {k}")
+    if k > n_features:
+        raise ValueError(f"selection budget k ({k}) exceeds the candidate pool size ({n_features})")
     mi = mutual_info_classif(X, y, random_state=0 if seed is None else seed)
-    return sorted(np.argsort(mi)[-k:].tolist())
+    # argsort(-mi) + stable sort makes ties resolve to the LOWEST index, the
+    # same convention select_lasso and select_mrmr use — otherwise equal
+    # scores resolve differently per arm and the arms are not comparable.
+    order = np.argsort(-mi, kind="stable")
+    return sorted(order[:k].tolist())
 
 
 def select_qubo(
@@ -229,8 +238,16 @@ def select_lasso(X, y, k, seed=None):
     from sklearn.linear_model import LogisticRegressionCV
     from sklearn.preprocessing import StandardScaler
 
+    n_features = int(np.asarray(X).shape[1])
+    if k < 1:
+        raise ValueError(f"selection budget k must be >= 1, got {k}")
+    if k > n_features:
+        raise ValueError(f"selection budget k ({k}) exceeds the candidate pool size ({n_features})")
     Xs = StandardScaler().fit_transform(X)
     # sklearn >=1.8: l1 selection via l1_ratios (penalty= is deprecated)
+    # Only the CONSTRUCTION is inside the try: a TypeError raised inside .fit()
+    # would otherwise be swallowed and silently retried on the legacy path,
+    # which uses a different scoring config and so selects a different model.
     try:
         clf = LogisticRegressionCV(
             l1_ratios=[1.0],
@@ -241,7 +258,7 @@ def select_lasso(X, y, k, seed=None):
             n_jobs=-1,
             max_iter=5000,
             scoring="accuracy",
-        ).fit(Xs, y)
+        )
     except TypeError:  # older sklearn: penalty= API
         clf = LogisticRegressionCV(
             penalty="l1",
@@ -251,9 +268,16 @@ def select_lasso(X, y, k, seed=None):
             random_state=seed,
             n_jobs=-1,
             max_iter=5000,
-        ).fit(Xs, y)
+            scoring="accuracy",
+        )
+    clf.fit(Xs, y)
     scores = np.abs(clf.coef_).mean(axis=0)
-    return sorted(np.argsort(-scores)[:k].tolist())
+    # argsort(-scores) + stable sort resolves ties to the LOWEST index, the
+    # same convention select_mi and select_mrmr use. Without this, a fully
+    # zeroed L1 penalty makes every score tie at 0.0 and the arm silently
+    # returns the first k indices — byte-identical to arm B.
+    order = np.argsort(-scores, kind="stable")
+    return sorted(order[:k].tolist())
 
 
 def select_mrmr(X, y, k, seed=None, n_bins=16):
@@ -263,18 +287,36 @@ def select_mrmr(X, y, k, seed=None, n_bins=16):
     from sklearn.metrics import mutual_info_score
 
     n_feat = X.shape[1]
+    if k < 1:
+        raise ValueError(f"selection budget k must be >= 1, got {k}")
+    if k > n_feat:
+        raise ValueError(f"selection budget k ({k}) exceeds the candidate pool size ({n_feat})")
     I = np.array([mutual_info_score(Xd[:, j], y) for j in range(n_feat)])  # noqa: E741
     R = np.zeros((n_feat, n_feat))
     for a, b in combinations(range(n_feat), 2):
         m = mutual_info_score(Xd[:, a], Xd[:, b])
         R[a, b] = R[b, a] = m
 
+    # Dead (constant) columns carry no information, but the plug-in MI gives
+    # them I=0 AND R=0 against every column, so their mRMR score is exactly
+    # 0.0 — which beats a real feature whose redundancy exceeds its relevance
+    # (e.g. I=0.10, R=0.56 -> score -0.46). A dead column would then be
+    # selected INSTEAD of a genuinely informative one (verified: chosen in
+    # 20/20 seeds at k=2). Exclude them from the candidate pool.
+    variable = [j for j in range(n_feat) if len(np.unique(Xd[:, j])) > 1]
+    if not variable:
+        variable = list(range(n_feat))
+    if len(variable) < k:
+        raise ValueError(f"only {len(variable)} non-constant features available for k={k}")
+
     selected = []
-    remaining = list(range(n_feat))
+    remaining = list(variable)
     # greedy: maximize I_i - mean_{j in S} R_ij
-    first = int(np.argmax(I))
-    selected.append(first)
-    remaining.remove(first)
+    # Ties resolve to the lowest index (np.argmax does this) so every arm
+    # resolves an equal score the same way.
+    first = int(np.argmax(I[remaining]))
+    selected.append(remaining[first])
+    remaining.remove(selected[0])
     while len(selected) < k and remaining:
         scores = [
             I[i] - (np.mean([R[i, j] for j in selected]) if selected else 0.0) for i in remaining
