@@ -8,6 +8,7 @@ data/processed/crops/<class>/<img_id>_<ann_id>.jpg
 
 import json
 import logging
+import os
 import shutil
 from collections import Counter, defaultdict
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -28,6 +29,15 @@ MAX_IMG_BYTES = 20 * 1024 * 1024  # flickr_640 images are ~90 KB; cap hostile re
 
 
 def download_file(url: str, dest: Path, desc: str = "") -> Path:
+    """Stream a URL to ``dest`` atomically.
+
+    The body is written to a sibling temp file and published with
+    ``os.replace`` only after a clean finish. A partial download must never
+    occupy ``dest``: the "already downloaded" check below treats existence as
+    proof of a complete fetch, so a truncated file left behind by a mid-stream
+    failure would be accepted forever and permanently corrupt the dataset
+    (for annotations.json, the whole pipeline).
+    """
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.exists():
         log.info("already downloaded: %s", dest.name)
@@ -36,18 +46,23 @@ def download_file(url: str, dest: Path, desc: str = "") -> Path:
     resp.raise_for_status()
     total = int(resp.headers.get("content-length", 0))
     written = 0
-    with (
-        open(dest, "wb") as f,
-        tqdm(total=total, unit="B", unit_scale=True, desc=desc or dest.name) as bar,
-    ):
-        for chunk in resp.iter_content(chunk_size=1 << 20):
-            written += len(chunk)
-            if written > MAX_DOWNLOAD_BYTES:
-                f.close()
-                dest.unlink(missing_ok=True)
-                raise ValueError(f"download exceeded {MAX_DOWNLOAD_BYTES} bytes: {url}")
-            f.write(chunk)
-            bar.update(len(chunk))
+    temp = dest.with_name(dest.name + ".part")
+    try:
+        with (
+            open(temp, "wb") as f,
+            tqdm(total=total, unit="B", unit_scale=True, desc=desc or dest.name) as bar,
+        ):
+            for chunk in resp.iter_content(chunk_size=1 << 20):
+                written += len(chunk)
+                if written > MAX_DOWNLOAD_BYTES:
+                    raise ValueError(f"download exceeded {MAX_DOWNLOAD_BYTES} bytes: {url}")
+                f.write(chunk)
+                bar.update(len(chunk))
+        os.replace(temp, dest)
+    finally:
+        # Any failure (cap exceeded, connection reset, timeout, disk error)
+        # leaves dest untouched and removes the partial file.
+        temp.unlink(missing_ok=True)
     return dest
 
 
