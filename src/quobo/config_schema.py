@@ -132,4 +132,15 @@ class QuoboConfig(_StrictModel):
                 f"selection.k ({self.selection.k}) must be <= "
                 f"features.pca_components ({self.features.pca_components})"
             )
+        # The QSVM is skipped (with only a log warning) when k exceeds the
+        # statevector memory guard, so a config above the limit would run to
+        # completion with ZERO quantum results while still reporting
+        # status="complete" — a silent loss of the paper's quantum arm.
+        if self.selection.k > self.qsvm.max_qsvm_features:
+            raise ValueError(
+                f"selection.k ({self.selection.k}) exceeds "
+                f"qsvm.max_qsvm_features ({self.qsvm.max_qsvm_features}); "
+                "the QSVM would be silently skipped for every arm, producing a "
+                "run with no quantum results"
+            )
         return self
