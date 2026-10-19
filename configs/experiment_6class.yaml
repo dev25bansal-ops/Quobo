@@ -1,7 +1,8 @@
 # Headline config: 6 concrete classes, 'other' grab-bag excluded.
-# Rationale: 'other' is 52% of crops and mixes 50 unrelated categories, so it
-# drowns both the metrics and the MI/QUBO objectives. The 6 kept classes are
-# coherent object types with balanced-enough counts (123-340 crops).
+# Rationale: 'other' is 52% of crops and mixes 37 unrelated TACO leaf
+# categories, so it drowns both the metrics and the MI/QUBO objectives. The 6
+# kept classes are coherent object types with balanced-enough counts
+# (192-436 crops).
 seed: 42
 
 data:

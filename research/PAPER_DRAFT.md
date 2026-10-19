@@ -145,9 +145,16 @@ advantage, at 8 qubits.
 47%) — the class that drives PSI; cup is the weakest (recall 32%). Full confusion matrices:
 results/confusion/.
 
-**PSI demo.** Majority-vote predictions over 25 repeats (100% crop coverage) drive the zone
-analytics: city cleanliness 74%, worst-zone PSI 500 (Zone B, cigarette-dominated), bands
-spread Good→Hazardous across the six demo zones. results/dashboard/dashboard.html.
+**PSI demo.** Majority-vote predictions over the 25 repeats of run
+`20260920_161627` drive the zone analytics. The shipped dashboard artifact
+(`results/dashboard/dashboard.html`, `zone_table.csv`) covers **459 of 1,836
+crops (25%)** — the crops that appeared in at least one repeat's held-out
+split, not the full set — giving city cleanliness **71.0%**, worst-zone PSI
+**500** (Zone C, cigarette-dominated), and per-zone PSI 154 / 436 / 500 / 167 /
+218 / 231. Bands across the six demo zones run **Unhealthy → Hazardous**
+(no "Good" zone occurs in this artifact). Zone assignment is a demo mapping of
+TACO image batches — TACO carries no GPS metadata — so these are relative
+demo values, not measured ward conditions (see Limitations).
 
 ## 5. Discussion & Limitations
 

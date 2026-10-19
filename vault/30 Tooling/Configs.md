@@ -12,8 +12,8 @@ the actual shipped settings (verified 2026-09-20).
 
 - `seed: 42`
 - classes: bottle, can, cigarette, carton, cup, lid (drops `other` — 52% of
-  crops, mixes 50 unrelated categories and drowns MI/QUBO objectives; kept
-  classes 123–340 crops each)
+  crops, mixes 37 unrelated TACO leaf categories and drowns MI/QUBO
+  objectives; kept classes 192–436 crops each)
 - features: MobileNetV2 → pca_components **50**
 - selection: k **8** (equal budget across arms)
 - qubo: mi_bins 16, sa_sweeps 20000, sa_repeats 10
