@@ -40,3 +40,7 @@ API Reference
 .. automodule:: quobo.quantum_experiments
    :members:
    :undoc-members:
+
+.. automodule:: quobo.atomic
+   :members:
+   :undoc-members:

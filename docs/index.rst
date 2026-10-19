@@ -5,6 +5,7 @@ Quobo — QUBO-based Quantum Feature Selection for Environmental Image Classific
    :maxdepth: 2
 
    api
+   quantum_experiments
 
 Quobo is the IDP3 pipeline for resource-constrained waste-image classification:
 TACO crops -> MobileNetV2 embeddings -> leak-free per-split PCA -> QUBO feature
