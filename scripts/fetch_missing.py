@@ -41,6 +41,10 @@ def fetch_one(im: dict, dest: Path) -> tuple[str, str]:
     urls = [u for u in (im.get("flickr_640_url"), im.get("flickr_url")) if u]
     last_err = "no-url"
     for attempt in range(RETRIES):
+        # A 404/410 on one candidate URL only means THAT url is dead; the
+        # other candidate may still serve the image. Retrying is pointless
+        # only once every candidate is permanently dead.
+        all_dead = True
         for url in urls:
             tmp_path = None
             try:
@@ -70,12 +74,20 @@ def fetch_one(im: dict, dest: Path) -> tuple[str, str]:
                 return "ok", ""
             except Exception as e:  # noqa: BLE001
                 last_err = f"{type(e).__name__}: {e}"[:80]
-                if isinstance(e, (ValueError,)) or "404" in str(last_err) or "410" in str(last_err):
-                    # size violation or permanently dead link — no point retrying
+                if isinstance(e, ValueError):
+                    # Size-cap violation — the same URL will fail the same way.
                     return "failed", last_err
+                if "404" in str(last_err) or "410" in str(last_err):
+                    # This URL is permanently dead. Move on to the next
+                    # candidate (the full-size fallback may still be alive).
+                    continue
+                # Transient failure (timeout, 5xx, reset) — retrying may help.
+                all_dead = False
             finally:
                 if tmp_path is not None:
                     tmp_path.unlink(missing_ok=True)
+        if all_dead:
+            return "failed", last_err
         time.sleep(2 * (attempt + 1))
     return "failed", last_err
 
