@@ -201,6 +201,25 @@ def extract_embeddings(
     )
 
 
+def _assert_class_set(labels, classes: list[str], crops_dir: Path) -> None:
+    """Fail fast when a configured class has no crops on disk.
+
+    A configured class with no crop directory is silently dropped by the
+    extractor, so the run trains on FEWER classes than the config (and the
+    manifest) claims — e.g. configs/experiment.yaml lists 'other', but
+    data/processed/crops/other does not exist, so the run trained on 6 classes
+    while the config said 7. The class set is part of the reported result, so
+    a mismatch must be an error, not a quiet difference.
+    """
+    present = {str(v) for v in labels}
+    missing = [c for c in classes if c not in present]
+    if missing:
+        raise ValueError(
+            f"configured classes {missing} have no crops under {crops_dir}; "
+            f"the run would train on {sorted(present)} instead of {sorted(classes)}"
+        )
+
+
 def run_raw_embeddings(cfg: dict) -> pd.DataFrame:
     """Cache the raw MobileNetV2 embeddings (1280-d) + labels + crop paths.
 
@@ -252,6 +271,7 @@ def run_raw_embeddings(cfg: dict) -> pd.DataFrame:
                     )
                 else:
                     log.info("raw embeddings cache hit: %s", out_npz.name)
+                    _assert_class_set(cached["label"].values, classes, crops_dir)
                     return cached
             else:
                 log.warning("raw cache identity mismatch — recomputing embeddings")
@@ -290,7 +310,9 @@ def run_raw_embeddings(cfg: dict) -> pd.DataFrame:
         )
     (ckpt_dir / f"{tag}.partial.npz").unlink(missing_ok=True)
     log.info("raw embeddings cached: %s (%d x %d)", out_npz.name, len(df), len(emb_cols))
-    return load_raw_embeddings(out_npz)
+    loaded = load_raw_embeddings(out_npz)
+    _assert_class_set(loaded["label"].values, classes, crops_dir)
+    return loaded
 
 
 def load_raw_embeddings(out_npz: Path) -> pd.DataFrame:

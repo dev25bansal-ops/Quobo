@@ -4,7 +4,10 @@ seed: 42
 
 data:
   # TACO supercategories collapsed to a tractable set (research: 28-way exceeds
-  # an 8-feature budget; TACO-10-style coarse classes are the precedented middle)
+  # an 8-feature budget; TACO-10-style coarse classes are the precedented middle).
+  # 'other' is intentionally NOT listed: data/processed/crops/other does not
+  # exist, so listing it made the run train on 6 classes while the config (and
+  # manifest) claimed 7. The run now fails fast on a missing class.
   classes:
     - bottle
     - can
@@ -12,7 +15,6 @@ data:
     - carton
     - cup
     - lid
-    - other
   min_images_per_class: 40
 
 features:
