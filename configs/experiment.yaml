@@ -39,7 +39,9 @@ qsvm:
   max_qsvm_features: 20        # skip QSVM above this (statevector 2^k memory limit)
 
 experiment:
-  n_repeats: 5                 # repeated splits, identical budget across arms A-D
+  # 6 is the floor for the two-sided Wilcoxon: at n=5 the smallest attainable
+  # p-value is 0.0625, so a 5-repeat run could never report significance.
+  n_repeats: 6                 # repeated splits, identical budget across arms A-D
   arms: [A_random, B_pca, C_mi, D_qubo]
   baselines: [rbf_svm]         # mandatory per Huang 2021 caveat
   early_stop: false            # statistical early stopping (Enhancement 3)

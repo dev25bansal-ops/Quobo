@@ -86,7 +86,17 @@ class QSVMConfig(_StrictModel):
 class ExperimentConfig(_StrictModel):
     """Experiment orchestration configuration."""
 
-    n_repeats: int = Field(ge=5, le=100, description="Number of repeated splits")
+    n_repeats: int = Field(
+        ge=5,
+        le=100,
+        description=(
+            "Number of repeated splits. NOTE: the two-sided Wilcoxon used for "
+            "significance has a minimum attainable p-value of 0.0625 at n=5 — "
+            "above the 0.05 threshold — so a 5-repeat run can never report a "
+            "significant result. Use >= 6 for a meaningful test; the paper run "
+            "uses 25."
+        ),
+    )
     arms: list[Literal["A_random", "B_pca", "C_mi", "D_qubo", "E_lasso", "F_mrmr", "Z_full"]] = (
         Field(min_length=1, description="Selection arms to run")
     )
@@ -142,5 +152,14 @@ class QuoboConfig(_StrictModel):
                 f"qsvm.max_qsvm_features ({self.qsvm.max_qsvm_features}); "
                 "the QSVM would be silently skipped for every arm, producing a "
                 "run with no quantum results"
+            )
+        # Early stopping needs enough repeats to be meaningful: the runner
+        # only consults it from rep 9 and requires min_reps=10, so a shorter
+        # run would ignore the flag entirely while appearing to enable it.
+        if self.experiment.early_stop and self.experiment.n_repeats < 10:
+            raise ValueError(
+                f"experiment.early_stop requires n_repeats >= 10 (got "
+                f"{self.experiment.n_repeats}); the early-stop check only runs "
+                "from repeat 10 onward, so a shorter run would ignore the flag"
             )
         return self

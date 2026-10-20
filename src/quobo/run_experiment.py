@@ -187,6 +187,20 @@ def run(cfg: dict, run_id: str | None = None, config_path: str | None = None) ->
     model = validate_config(cfg)
     cfg = model.model_dump()
     log.info("config validated against schema; using normalized values")
+    # The significance test is a two-sided Wilcoxon over the per-repeat
+    # differences. Its minimum attainable p-value is 0.0625 at n=5 — above
+    # the 0.05 threshold — so a 5-repeat run can NEVER report a significant
+    # result, and every comparison would read as "no difference found"
+    # rather than "not enough evidence to detect one". Warn loudly rather
+    # than silently under-powering the test.
+    n_reps = cfg["experiment"]["n_repeats"]
+    if n_reps < 6:
+        log.warning(
+            "n_repeats=%d: the two-sided Wilcoxon cannot reach p<0.05 below 6 "
+            "repeats (minimum attainable p at n=5 is 0.0625) — every comparison "
+            "in this run will be non-significant by construction",
+            n_reps,
+        )
     stamp = run_id or datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     run_dir = ROOT / "experiments" / stamp
     run_dir.mkdir(parents=True, exist_ok=True)
