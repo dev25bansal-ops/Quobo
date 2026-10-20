@@ -262,6 +262,14 @@ Chain (matches the leak-free experiment exactly):
           -> x50[:, selected_features]                    [numpy index, 8 cols]
           -> head_svm_8.onnx (8 -> label)
 
+Two entry points:
+    predict_image(path)  — from an image file (needs backbone_mobilenet.onnx)
+    predict(x1280)       — from an already-computed 1280-d backbone output
+
+Input contract: backbone_mobilenet.onnx takes RAW 0..255 RGB pixels at
+224x224 and applies the mobilenet_v2 preprocess_input rescale to -1..1
+inside the graph, so it matches the training pipeline.
+
 Sessions are constructed once and reused across predictions. If model files
 are replaced on disk, clear the cache (_session.cache_clear()) or reload the
 process to pick up the new bundle.
@@ -293,8 +301,28 @@ def predict(x1280: np.ndarray) -> str:
     x50 = _session("features_1280_50.onnx").run(None, {"input": x1280.astype(np.float32)})[0]
     label = _session("head_svm_8.onnx").run(
         None, {"input": x50[:, m["selected_features"]].astype(np.float32)})[0]
-    # zipmap=True: output[0] is already the class-name string
-    return str(label[0])
+    # zipmap=True: output[0] is the class-name string, but the ONNX string
+    # tensor may decode as bytes — str(b"lid") would yield "b\'lid\'" with the
+    # quotes, so decode explicitly.
+    value = label[0]
+    return value.decode() if isinstance(value, bytes) else str(value)
+
+
+def predict_image(path: str) -> str:
+    """Predict the class of an image file (requires the exported backbone).
+
+    The backbone graph takes RAW 0..255 RGB pixels and performs the
+    mobilenet_v2 preprocess_input rescale to -1..1 internally, so the input
+    contract matches training. The image is resized to 224x224 exactly as
+    training does.
+    """
+    from PIL import Image
+
+    with Image.open(path) as img:
+        img = img.convert("RGB").resize((224, 224), Image.BILINEAR)
+        arr = np.asarray(img, dtype=np.float32)[None, ...]
+    x1280 = _session("backbone_mobilenet.onnx").run(None, {"input": arr})[0]
+    return predict(x1280)
 ''',
         encoding="utf-8",
     )
