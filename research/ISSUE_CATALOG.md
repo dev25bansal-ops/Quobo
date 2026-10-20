@@ -1,10 +1,9 @@
 # Quobo — Issue Catalog & Remediation Plan
 
-> **SUPERSEDED (2026-10-19).** This is the 2026-09-20 catalog, kept as the
-> pre-session baseline. The current catalog is
-> **`research/ISSUES_CATALOG_2026-10-19.md`** — it supersedes this file and adds
-> the 2026-10-18/19 hardening pass (24 issues fixed: 2 security, 5 correctness,
-> atomic writes, tz-aware datetimes, coverage-gate target, pin alignment).
+> **SUPERSEDED (2026-10-20).** The current catalog is
+> **`research/ISSUES_CATALOG_2026-10-20.md`** — it supersedes this file and adds
+> the 2026-10-19/20 hardening pass (43 issues fixed: 6 Critical, 22 High,
+> 21 Medium; 3 Low open as backlog).
 
 **State:** 2026-09-20 · 163/163 tests green · pip-audit clean · commit `a7c8522` · **post-remediation verification complete — 17/20 fixed, 1 mitigated, 2 open (1 user-blocked, 1 data re-run), 1 backlog**
 **Scope:** full audit of `src/quobo/`, `scripts/`, `tests/`, `docs/`, packaging, build/ops

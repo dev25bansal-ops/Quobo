@@ -8,10 +8,10 @@ source: research/ISSUE_REGISTER.md
 
 Mirror of `research/ISSUE_REGISTER.md` (authoritative source). State 2026-09-20.
 For the full audited catalog with severity/priority/effort/timeline see
-**`research/ISSUES_CATALOG_2026-10-19.md`** — the current catalog (11 open
-issues: 0 Critical, 2 High, 5 Medium, 4 Low; 24 issues fixed in the
-2026-10-18/19 hardening pass). The older `research/ISSUE_CATALOG.md`
-(19 findings, 2026-09-20) is the pre-session baseline.
+**`research/ISSUES_CATALOG_2026-10-20.md`** — the current catalog (3 Low open
+as backlog; 49 issues fixed across the 2026-10-18/19/20 hardening passes:
+6 Critical, 22 High, 21 Medium). The older `research/ISSUES_CATALOG_2026-10-19.md`
+and `research/ISSUE_CATALOG.md` are earlier snapshots.
 
 ## Resolved highlights
 

@@ -1,5 +1,11 @@
 # Issues & Required Fixes — Comprehensive Catalog
 
+> **SUPERSEDED (2026-10-20).** The current catalog is
+> **`research/ISSUES_CATALOG_2026-10-20.md`** — it consolidates this file with
+> the findings of the 8 multi-agent audit rounds that followed, and reflects
+> the 43 fixes committed in that window (6 Critical, 22 High, 21 Medium).
+> This file is kept as the 2026-10-19 snapshot.
+
 **Date:** 2026-10-19 · **State:** after 25 hardening commits this session (`0a2546c`–`ae101b1`) · **Tests:** 171 green · **Lint:** 0 errors · **Method:** parallel Explore agents verified every finding against current code (file:line + evidence), not speculation.
 
 > **Second-round audits (2026-10-19).** After the first catalog was written,
