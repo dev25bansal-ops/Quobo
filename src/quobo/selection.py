@@ -148,7 +148,17 @@ def select_qubo(
 
     def solve(alpha: float) -> tuple[list[int], float]:
         Qm = qubo_matrix(alpha)
-        qubo = {(i, j): float(Qm[i, j]) for i in range(n) for j in range(n)}
+        # Emit the DIAGONAL and the UPPER TRIANGLE only. dimod's
+        # from_qubo sums the two orientations of a pair, so passing both
+        # (i,j) and (j,i) doubled every redundancy term: the code optimized
+        # 2*(1-alpha)*R_ij while the module docstring, the config comment and
+        # the paper document (1-alpha)*R_ij (Muecke et al., arXiv:2203.13261).
+        # Verified: from_qubo({(0,1):0.5,(1,0):0.5}).get_quadratic(0,1) == 1.0.
+        qubo = {}
+        for i in range(n):
+            qubo[(i, i)] = float(Qm[i, i])
+            for j in range(i + 1, n):
+                qubo[(i, j)] = float(Qm[i, j])
         rng = np.random.default_rng(seed + int(alpha * 1000))
         sampleset = sampler.sample_qubo(
             qubo, num_reads=repeats, num_sweeps=sweeps, seed=int(rng.integers(2**31))
