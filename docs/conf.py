@@ -7,8 +7,12 @@ stay in sync with the code."""
 import os
 import sys
 
-# make the src/ package importable for autodoc
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# Make the `quobo` package importable for autodoc. The package lives under
+# src/ (src-layout), so the path entry must be src/ — inserting the repo
+# root does NOT make `import quobo` work; it only resolves via an editable
+# install (.pth). Inserting src/ means the docs build works on a machine
+# that has not run `pip install -e .`.
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
 project = "quobo"
 copyright = "2026, IDP3"
