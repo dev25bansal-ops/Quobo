@@ -37,6 +37,12 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Prepend the repo root to sys.path for every test session. Without this, a
+# module that imports `scripts.*` (e.g. tests/test_confusion_analysis.py,
+# which has no sys.path bootstrap of its own) only works when another test
+# module happened to mutate sys.path first — so `pytest tests/test_X.py`
+# failed at collection while `python -m pytest` passed.
+pythonpath = ["."]
 markers = [
     "integration: end-to-end pipeline test (real TF model, no weight download); skipped by pre-commit, run in CI",
 ]
