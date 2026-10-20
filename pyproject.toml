@@ -45,6 +45,7 @@ testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
     "integration: end-to-end pipeline test (real TF model, no weight download); skipped by pre-commit, run in CI",
+    "golden: statistical regression harness — compares a completed run's headline numbers to the frozen baseline; opt-in (QUOBO_GOLDEN=1), run in the 'golden' build profile",
 ]
 
 [tool.ruff]

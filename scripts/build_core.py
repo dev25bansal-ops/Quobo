@@ -292,7 +292,19 @@ def run(profile: str = "full", python: str = "") -> int:
         ]
         if profile == "quick":
             args += ["-m", "not integration"]
-        code, pytest_out = _run(args, cwd=ROOT)
+        if profile == "golden":
+            # The statistical regression harness: recomputes the paper's
+            # headline numbers from a completed run's artifacts and compares
+            # them to the frozen baseline. Opt-in (QUOBO_GOLDEN=1) because it
+            # needs a completed run on disk.
+            args += ["-m", "golden"]
+        env = None
+        if profile == "golden":
+            import os as _os
+
+            env = _os.environ.copy()
+            env["QUOBO_GOLDEN"] = "1"
+        code, pytest_out = _run(args, cwd=ROOT, env=env)
         pytest_ok = code == 0 and schema_ok
         counts = _parse_counts(pytest_out)
         print(
