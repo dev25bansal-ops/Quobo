@@ -67,10 +67,16 @@ def _release_lock() -> None:
 
 def _parse_counts(out: str) -> dict[str, int]:
     counts = {"passed": 0, "failed": 0, "skipped": 0, "errored": 0}
-    for key in counts:
+    for key in ("passed", "failed", "skipped"):
         m = re.search(rf"(\d+) {key}", out)
         if m:
             counts[key] = int(m.group(1))
+    # pytest reports collection/fixture errors as "N error" / "N errors" — never
+    # "N errored" — so the old rf"(\d+) errored" pattern never matched and every
+    # errored test was recorded as 0. Match the singular and plural forms.
+    m = re.search(r"(\d+) errors?\b", out)
+    if m:
+        counts["errored"] = int(m.group(1))
     return counts
 
 
@@ -80,7 +86,14 @@ def _coverage_pct() -> str:
         return ""
     try:
         data = json.loads(cov.read_text(encoding="utf-8"))
-        return f"{round(data['total']['percent_covered'], 1):.1f}"
+        # coverage.py's JSON report uses the key "totals" (verified against a
+        # real report: top-level keys are meta / files / totals). The old
+        # data["total"] lookup raised KeyError every time, so the coverage
+        # figure was silently absent from every build record.
+        totals = data.get("totals") or data.get("total")
+        if not totals:
+            return ""
+        return f"{round(totals['percent_covered'], 1):.1f}"
     except Exception:  # noqa: BLE001 — coverage summary is advisory
         return ""
 
