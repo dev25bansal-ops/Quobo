@@ -4,9 +4,9 @@
 #   .venv/Scripts/python.exe -m src.quobo.run_experiment configs/experiment_trashnet.yaml
 # (see configs/README_cross_dataset.md)
 #
-# NOTE: this config requires a small extension to features.py (crops dir
-# override) tracked in the issue register; without it, the pipeline reads
-# data/processed/crops and will NOT pick this file up.
+# NOTE: the crops-dir override this config relies on IS implemented — the
+# `data.crops_dir_override` key is part of the config schema and is honoured by
+# src/quobo/features.py, so this config works as shipped.
 seed: 42
 
 data:
@@ -25,6 +25,8 @@ qubo:
   mi_bins: 16
   sa_sweeps: 20000
   sa_repeats: 10
+  parallel: true              # threaded coarse alpha scan (~3x); same selected
+                              # features as sequential (see experiment_6class.yaml)
 
 qsvm:
   reps: 1
