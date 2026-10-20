@@ -26,8 +26,13 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("qpu")
 
 
-def build_qubo(X: np.ndarray, y: np.ndarray, k: int, alpha: float, n_bins: int = 16) -> dict:
-    """Mücke-style QFS QUBO at fixed alpha (reuses the MI tables)."""
+def build_qubo(X: np.ndarray, y: np.ndarray, alpha: float, n_bins: int = 16) -> dict:
+    """Mücke-style QFS QUBO at fixed alpha (reuses the MI tables).
+
+    NOTE: the QUBO does not constrain cardinality. The exactly-k property
+    comes from the alpha search in main() (as in src/quobo/selection.py), not
+    from this matrix — so the budget `k` is deliberately NOT a parameter here.
+    """
     I, R = compute_mi_table(X, y, n_bins)  # noqa: E741
     n = len(I)
     Q: dict[tuple[int, int], float] = {}
@@ -65,7 +70,7 @@ def main() -> int:
     # alpha chosen by the SA path's own bisection (persisted in rep JSONs);
     # 0.5 is the canonical midpoint documented in selection.py
     for alpha in (0.5, 0.6, 0.7):
-        qubo = build_qubo(X, y, cfg["selection"]["k"], alpha)
+        qubo = build_qubo(X, y, alpha)
         sampleset = sampler.sample_qubo(qubo, label=f"quobo-fs-alpha{alpha}")
         chosen = [i for i in range(X.shape[1]) if sampleset.first.sample[i] == 1]
         log.info("alpha=%.2f -> %d features: %s", alpha, len(chosen), chosen)
