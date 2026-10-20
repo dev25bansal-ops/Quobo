@@ -4,6 +4,7 @@ Runs the real pipeline on ~96 synthetic images with a MobileNetV2-shaped
 network (tiny random conv backbone, no ImageNet download) and asserts the
 full flow works end-to-end and produces sane outputs. Target: < 2 min.
 """
+
 import sys
 from pathlib import Path
 
@@ -17,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 def synthetic_crops(tmp_path_factory):
     """96 tiny crops across 3 classes with a learnable color signal."""
     import cv2
+
     root = tmp_path_factory.mktemp("crops")
     rng = np.random.default_rng(0)
     classes = {"bottle": (40, 80, 200), "can": (200, 60, 40), "carton": (60, 200, 80)}
@@ -55,6 +57,7 @@ def test_end_to_end_pipeline(synthetic_crops, monkeypatch, tmp_path):
     proc = tmp_path / "data" / "processed"
     (proc).mkdir(parents=True)
     import shutil
+
     shutil.copytree(crops_dir, proc / "crops")
 
     cfg = {
@@ -63,8 +66,12 @@ def test_end_to_end_pipeline(synthetic_crops, monkeypatch, tmp_path):
         "features": {"backbone": "tiny", "pca_components": 6, "standardize": True},
         "selection": {"k": 4},
         "qubo": {"mi_bins": 8, "sa_sweeps": 1500, "sa_repeats": 5},
-        "qsvm": {"reps": 1, "entanglement": "linear",
-                 "max_train_samples": 48, "test_fraction": 0.25},
+        "qsvm": {
+            "reps": 1,
+            "entanglement": "linear",
+            "max_train_samples": 48,
+            "test_fraction": 0.25,
+        },
         "experiment": {"n_repeats": 2, "arms": ["A_random", "B_pca", "C_mi", "D_qubo"]},
     }
 
@@ -75,9 +82,11 @@ def test_end_to_end_pipeline(synthetic_crops, monkeypatch, tmp_path):
     # a color-signal dataset must be separable: quick sanity via the real arms
     from src.quobo.qsvm import run_all_classifiers
     from src.quobo.selection import select_features
+
     feat_cols = [c for c in df.columns if c.startswith("f")]
     X, y = df[feat_cols].values.astype(float), np.asarray(df["label"].values)
     from sklearn.model_selection import train_test_split
+
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25, random_state=42, stratify=y)
     sel, _ = select_features("D_qubo", Xtr, ytr, 4, 42, cfg["qubo"])
     assert len(sel) == 4

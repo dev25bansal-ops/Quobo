@@ -206,8 +206,7 @@ def test_significance_structure_is_unchanged():
         f"(expected {sorted(GOLDEN_SIGNIFICANT_VS_QUBO)})"
     )
     assert tied == GOLDEN_TIED_VS_QUBO, (
-        f"arms tying with QUBO-8 changed: {sorted(tied)} "
-        f"(expected {sorted(GOLDEN_TIED_VS_QUBO)})"
+        f"arms tying with QUBO-8 changed: {sorted(tied)} (expected {sorted(GOLDEN_TIED_VS_QUBO)})"
     )
 
 
@@ -220,7 +219,7 @@ def test_every_arm_selected_exactly_k_features():
         if payload.get("arm") == "Z_full":
             continue
         selected = payload.get("selected") or []
-        assert (
-            len(selected) == k_expected
-        ), f"{rep_file.name}: selected {len(selected)} features, expected {k_expected}"
+        assert len(selected) == k_expected, (
+            f"{rep_file.name}: selected {len(selected)} features, expected {k_expected}"
+        )
         assert len(set(selected)) == k_expected, f"{rep_file.name}: duplicate feature indices"

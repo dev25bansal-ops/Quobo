@@ -151,7 +151,7 @@ def _record(
         f.write(
             f"{ts},{profile},{status},{counts['passed']},{counts['failed']},"
             f"{counts['errored']},{counts['skipped']},{ruff_err},"
-            f"{round(duration,1)},{commit}\n"
+            f"{round(duration, 1)},{commit}\n"
         )
 
     _update_vault(
@@ -200,12 +200,12 @@ def _update_vault(
 
 - **Status**: `{status}`
 - **Profile**: {profile}
-- **Tests**: {counts['passed']} passed, {counts['failed']} failed, {counts['errored']} errored, {counts['skipped']} skipped
-- **Ruff**: {'clean' if ruff_ok else f"{ruff_err} findings (advisory)"}
-- **Schema import**: {'ok' if schema_ok else 'FAILED'}
-- **Coverage**: {cov_pct + '%' if cov_pct else 'not measured'}
+- **Tests**: {counts["passed"]} passed, {counts["failed"]} failed, {counts["errored"]} errored, {counts["skipped"]} skipped
+- **Ruff**: {"clean" if ruff_ok else f"{ruff_err} findings (advisory)"}
+- **Schema import**: {"ok" if schema_ok else "FAILED"}
+- **Coverage**: {cov_pct + "%" if cov_pct else "not measured"}
 - **pip-audit**: {audit_txt}
-- **Duration**: {round(duration,1)}s
+- **Duration**: {round(duration, 1)}s
 - **Commit**: {commit}
 - **Summary**: {log_tail}
 - **History**: [[Build Log]] · machine-readable: `outputs/ci/last_build.json`
@@ -222,7 +222,7 @@ def _update_vault(
         row = (
             f"| {ts} | {profile} | {status} | "
             f"{counts['passed']}/{sum(counts.values())} | {ruff_err} | "
-            f"{round(duration,1)}s | {commit} |"
+            f"{round(duration, 1)}s | {commit} |"
         )
         lines = log_path.read_text(encoding="utf-8").splitlines()
         out, inserted = [], False
@@ -370,7 +370,7 @@ def run(profile: str = "full", python: str = "") -> int:
             log_tail,
         )
 
-        print(f"[done] {status} in {round(duration,1)}s (json+csv+vault updated)")
+        print(f"[done] {status} in {round(duration, 1)}s (json+csv+vault updated)")
         return 0 if pytest_ok else 1
     finally:
         _release_lock()

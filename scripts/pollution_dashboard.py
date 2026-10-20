@@ -524,7 +524,7 @@ def render_dashboard(
     for _, r in zt.iterrows():
         cells += (
             f'<div class="map-cell" style="background:{BAND_COLORS[r["band"]]}">'
-            f'<b>{_html.escape(str(r["zone"]))}</b><span>PSI {r["psi"]}</span></div>'
+            f"<b>{_html.escape(str(r['zone']))}</b><span>PSI {r['psi']}</span></div>"
         )
 
     # Enhancement 5: interactive Plotly charts (hover + zoom)

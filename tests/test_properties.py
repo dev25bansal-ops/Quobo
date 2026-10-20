@@ -5,6 +5,7 @@ Each property is a candidate invariant that should hold for *all* valid inputs,
 not just the fixed examples in test_pipeline.py. Kept cheap (small examples,
 deadline=None) so CI stays fast while still exploring edge cases.
 """
+
 import sys
 from pathlib import Path
 
@@ -44,8 +45,14 @@ def test_psi_and_cleanliness_bounded(zone_counts):
     rows = []
     for zone, n in zone_counts.items():
         for i in range(n):
-            rows.append({"crop_path": f"{zone}/c/{i}.jpg", "class": "cigarette",
-                         "file": f"{i}.jpg", "zone_dir": zone})
+            rows.append(
+                {
+                    "crop_path": f"{zone}/c/{i}.jpg",
+                    "class": "cigarette",
+                    "file": f"{i}.jpg",
+                    "zone_dir": zone,
+                }
+            )
     if not rows:
         return
     zt = compute_zone_table(pd.DataFrame(rows))
@@ -56,9 +63,11 @@ def test_psi_and_cleanliness_bounded(zone_counts):
 
 @settings(max_examples=30, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
-    hnp.arrays(dtype=np.float64,
-               shape=hnp.array_shapes(min_dims=2, max_dims=2, min_side=40, max_side=120),
-               elements=st.floats(min_value=-10, max_value=10, allow_nan=False, allow_infinity=False)),
+    hnp.arrays(
+        dtype=np.float64,
+        shape=hnp.array_shapes(min_dims=2, max_dims=2, min_side=40, max_side=120),
+        elements=st.floats(min_value=-10, max_value=10, allow_nan=False, allow_infinity=False),
+    ),
     st.integers(min_value=20, max_value=60),
 )
 def test_fit_pca_on_train_shapes_and_leak_free_property(Xtr, n_te_rows):

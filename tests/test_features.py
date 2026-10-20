@@ -67,9 +67,9 @@ def test_extract_embeddings_checkpoint_resume(tmp_path, monkeypatch):
     calls["samples"] = 0
     df2 = F.extract_embeddings(fake, crops, ["a", "b"], checkpoint_dir=ckpt_dir, checkpoint_tag="t")
     # resumed: probe(1) + 3 todo rows = 4 samples < first call's 7
-    assert (
-        calls["samples"] < first_samples
-    ), f"expected resume to skip work ({calls['samples']} < {first_samples})"
+    assert calls["samples"] < first_samples, (
+        f"expected resume to skip work ({calls['samples']} < {first_samples})"
+    )
     assert df2.shape == df1.shape
 
 

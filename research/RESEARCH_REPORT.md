@@ -79,7 +79,7 @@ from qiskit.circuit.library import ZZFeatureMap
 from qiskit_machine_learning.kernels import FidelityQuantumKernel
 from qiskit_machine_learning.algorithms import QSVC
 
-feature_map = ZZFeatureMap(feature_dimension=8, reps=1, entanglement='linear')
+feature_map = ZZFeatureMap(feature_dimension=8, reps=1, entanglement="linear")
 kernel = FidelityQuantumKernel(feature_map=feature_map, enforce_psd=True)
 qsvc = QSVC(quantum_kernel=kernel)
 ```

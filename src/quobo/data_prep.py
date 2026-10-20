@@ -344,6 +344,190 @@ def load_supercat_map() -> dict[str, str]:
     return leaf_to_super
 
 
+# L-10: the taxonomy CSV is hand-maintained, so it can silently drift from
+# TACO's own `supercategory` field (a new TACO release adds leaves, a typo
+# changes a coarse class). The drift check below compares the two sources and
+# REPORTS the differences; it never rewrites the CSV on its own.
+ANNOTATIONS_REL_PATH = Path("data") / "raw" / "annotations.json"
+TAXONOMY_REL_PATH = Path("configs") / "taco_taxonomy.csv"
+OTHER_COARSE = "other"
+
+
+def _parse_taxonomy_csv(csv_path: Path) -> dict[str, str]:
+    """leaf -> coarse class from the hand-maintained taxonomy CSV."""
+    import csv
+
+    leaf_to_coarse: dict[str, str] = {}
+    with open(csv_path, encoding="utf-8", newline="") as f:
+        for row in csv.DictReader(f):
+            leaf = (row.get("leaf") or "").strip()
+            coarse = (row.get("coarse") or "").strip()
+            if leaf:
+                leaf_to_coarse[leaf] = coarse
+    return leaf_to_coarse
+
+
+def _taco_leaf_supercategories(annotations_path: Path) -> dict[str, str]:
+    """leaf category name -> TACO's own `supercategory`, from annotations.json."""
+    with open(annotations_path, encoding="utf-8") as f:
+        coco = json.load(f)
+    out: dict[str, str] = {}
+    for cat in coco.get("categories", []):
+        name = str(cat.get("name", "")).strip()
+        if name:
+            out[name] = str(cat.get("supercategory", "") or "").strip()
+    return out
+
+
+def check_taxonomy_drift(
+    csv_path: Path | None = None,
+    annotations_path: Path | None = None,
+) -> dict:
+    """Compare the hand-maintained taxonomy CSV against TACO's own annotations (L-10).
+
+    Reports three kinds of drift, in two severity tiers:
+
+    **HARD drift** (makes ``ok`` False — the dataset itself is affected):
+
+    1. ``missing_in_csv`` / ``missing_in_taco`` — a leaf category present in
+       one source but not the other. A new TACO release adds a leaf the CSV
+       never learned about, or a typo in the CSV names a category TACO does
+       not have. ``build_crops`` maps an unknown leaf to the 'Unlabeled litter'
+       catch-all, so such a leaf silently vanishes from the dataset.
+
+    **SOFT drift** (reported for review — usually a deliberate refinement):
+
+    2. ``coarse_mismatches`` — a CSV leaf whose coarse class disagrees with
+       the class implied by TACO's `supercategory` field. The implied class
+       follows the same rule as :func:`load_supercat_map`: a supercategory
+       that names a configured class maps to it, everything else maps to
+       'other'. The shipped CSV refines several of these on purpose (TACO
+       files bottle caps under supercategory "Bottle cap" while the paper
+       groups them with lids; "Pop tab" is grouped with cans), so this tier
+       must not fail the check on its own;
+    3. ``group_inconsistencies`` — within one TACO supercategory the CSV
+       assigns different coarse classes to different leaves. A likely sign of
+       an accidental edit, but also a legitimate way to carve one leaf out of
+       a group (the shipped CSV keeps "Aerosol" out of the "can" class).
+
+    The check never rewrites anything and never raises for drift — drift is
+    REPORTED. When ``annotations.json`` is absent the check degrades
+    gracefully: ``annotations_available`` is False and a clear message is
+    returned instead of crashing (the annotations file is a downloaded
+    artifact and is absent on a fresh clone).
+    """
+    csv_path = Path(csv_path) if csv_path is not None else ROOT / TAXONOMY_REL_PATH
+    annotations_path = (
+        Path(annotations_path) if annotations_path is not None else ROOT / ANNOTATIONS_REL_PATH
+    )
+
+    report: dict = {
+        "csv_path": str(csv_path),
+        "annotations_path": str(annotations_path),
+        "annotations_available": False,
+        "csv_available": False,
+        "message": "",
+        "n_csv_leaves": 0,
+        "n_taco_leaves": 0,
+        "missing_in_csv": [],
+        "missing_in_taco": [],
+        "coarse_mismatches": [],
+        "group_inconsistencies": [],
+        "n_hard_drift": 0,
+        "n_soft_drift": 0,
+        "ok": True,
+    }
+
+    if not csv_path.is_file():
+        report["message"] = f"taxonomy CSV not found: {csv_path}"
+        report["ok"] = False
+        return report
+    report["csv_available"] = True
+    csv_map = _parse_taxonomy_csv(csv_path)
+    report["n_csv_leaves"] = len(csv_map)
+
+    if not annotations_path.is_file():
+        report["message"] = (
+            f"TACO annotations not found at {annotations_path} — the taxonomy drift "
+            "check needs the shipped annotations.json (download the dataset first); "
+            "skipped without failing"
+        )
+        return report
+    report["annotations_available"] = True
+    taco_map = _taco_leaf_supercategories(annotations_path)
+    report["n_taco_leaves"] = len(taco_map)
+
+    report["missing_in_csv"] = sorted(set(taco_map) - set(csv_map))
+    report["missing_in_taco"] = sorted(set(csv_map) - set(taco_map))
+
+    # The configured coarse classes are the ones the CSV itself uses (minus the
+    # 'other' grab-bag): a supercategory that names one of them maps to it.
+    classes = {c for c in csv_map.values() if c and c != OTHER_COARSE}
+
+    def implied_coarse(supercategory: str) -> str:
+        low = supercategory.strip().lower()
+        return low if low in classes else OTHER_COARSE
+
+    for leaf in sorted(csv_map):
+        if leaf not in taco_map:
+            continue
+        supercategory = taco_map[leaf]
+        expected = implied_coarse(supercategory)
+        if csv_map[leaf] != expected:
+            report["coarse_mismatches"].append(
+                {
+                    "leaf": leaf,
+                    "csv_coarse": csv_map[leaf],
+                    "taco_supercategory": supercategory,
+                    "implied_coarse": expected,
+                }
+            )
+
+    # Group consistency: within a TACO supercategory the CSV must not split
+    # the leaves across different coarse classes. The majority assignment is
+    # the reference; the outliers are reported.
+    by_super: dict[str, list[str]] = defaultdict(list)
+    for leaf, supercategory in taco_map.items():
+        if leaf in csv_map:
+            by_super[supercategory].append(leaf)
+    for supercategory, leaves in sorted(by_super.items()):
+        counts = Counter(csv_map[leaf] for leaf in leaves)
+        if len(counts) < 2:
+            continue
+        consensus, _ = counts.most_common(1)[0]
+        for leaf in sorted(leaves):
+            if csv_map[leaf] != consensus:
+                report["group_inconsistencies"].append(
+                    {
+                        "leaf": leaf,
+                        "csv_coarse": csv_map[leaf],
+                        "taco_supercategory": supercategory,
+                        "consensus_coarse": consensus,
+                    }
+                )
+
+    report["n_hard_drift"] = len(report["missing_in_csv"]) + len(report["missing_in_taco"])
+    report["n_soft_drift"] = len(report["coarse_mismatches"]) + len(report["group_inconsistencies"])
+    report["ok"] = report["n_hard_drift"] == 0
+    report["message"] = (
+        "taxonomy matches TACO annotations"
+        if report["ok"] and report["n_soft_drift"] == 0
+        else (
+            "taxonomy drift detected: "
+            f"{report['n_hard_drift']} hard (presence) and "
+            f"{report['n_soft_drift']} soft (coarse/grouping) difference(s) — "
+            "see missing_in_csv / missing_in_taco / coarse_mismatches / "
+            "group_inconsistencies"
+        )
+    )
+    return report
+
+
+# Both names are used in the issue tracker for this check; keep them as one
+# function so the two spellings can never drift apart.
+taxonomy_drift = check_taxonomy_drift
+
+
 def build_crops(
     ann_path: Path,
     images_dir: Path,
@@ -364,6 +548,20 @@ def build_crops(
     skipped = Counter()
     too_small_by_class: dict[str, int] = {}
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # L-10: a TACO leaf that the hand-maintained taxonomy CSV does not know
+    # is silently mapped to the 'Unlabeled litter' catch-all below, so its
+    # crops vanish from the dataset without a trace. Report the unknown
+    # leaves instead of dropping them quietly — the taxonomy check
+    # (check_taxonomy_drift) reports the same thing as presence drift.
+    unknown_leaves = sorted({n for n in cat_id_to_name.values() if n not in leaf_map})
+    if unknown_leaves:
+        log.warning(
+            "%d TACO leaf categories are missing from the taxonomy CSV and will "
+            "be mapped to the 'Unlabeled litter' catch-all: %s",
+            len(unknown_leaves),
+            ", ".join(unknown_leaves),
+        )
 
     # group annotations by image so each image decodes once (worst image has
     # 90 annotations — naive per-annotation decode re-reads it 90 times)
@@ -451,6 +649,10 @@ def build_crops(
         "kept_classes": {
             c: per_class[c] for c in cfg_classes if per_class[c] >= min_images_per_class
         },
+        # L-10: TACO leaves the taxonomy CSV does not cover — their crops were
+        # mapped to the 'Unlabeled litter' catch-all and dropped. Persisted so
+        # the taxonomy drift is visible in the run's own stats.
+        "unknown_taxonomy_leaves": unknown_leaves,
         # Per-class crop retention. The 8 px minimum-crop filter is NOT
         # class-neutral (cigarettes lose ~56% of their annotations because a
         # butt is thin in a wide shot), so the retained class priors differ

@@ -150,7 +150,7 @@ Werkzeug==3.1.8
 wheel==0.48.0
 wrapt==2.3.0
 pytest
-ruff
+ruff==0.16.5
 coverage==7.16.1
 mdit-py-plugins==0.6.1
 myst-parser==5.1.0

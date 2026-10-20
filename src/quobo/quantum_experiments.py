@@ -292,8 +292,7 @@ def make_statevector_kernel(
         )
     except ImportError as exc:
         raise RuntimeError(
-            "Install qiskit-machine-learning>=0.9 and qiskit>=2.1 "
-            "for local statevector experiments"
+            "Install qiskit-machine-learning>=0.9 and qiskit>=2.1 for local statevector experiments"
         ) from exc
     circuit, theta = make_feature_map(qubits, reps, entanglement, trainable)
     if trainable:

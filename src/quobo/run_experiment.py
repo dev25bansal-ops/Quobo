@@ -8,6 +8,12 @@ and per-classifier predictions.
 Outputs (under ``experiments/<timestamp>/``): ``results_all.csv``, the summary
 CSV + significance CSV under ``results/tables/``, and per-rep JSONs consumed by
 ``confusion_analysis`` / ``pollution_dashboard``.
+
+The run body is staged (L-01): ``_select_and_classify_rep`` does the per-arm
+selection + classification, ``_persist_rep`` writes the per-rep artifact, and
+``_finalize_run`` writes the run-level aggregates. Each stage takes and
+returns plain data, so a stage can be exercised without running a 25-repeat
+experiment.
 """
 
 import hashlib
@@ -16,6 +22,7 @@ import logging
 import os
 import tempfile
 import time
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -122,7 +129,7 @@ def log_to_mlflow(results: pd.DataFrame, cfg: dict, run_dir) -> bool:
     try:
         import mlflow
     except ImportError:
-        log.warning("mlflow not installed — skipping experiment tracking " "(pip install mlflow)")
+        log.warning("mlflow not installed — skipping experiment tracking (pip install mlflow)")
         return False
     try:
         # MLflow 3.x: the plain ./mlruns file backend is in maintenance mode and
@@ -269,6 +276,179 @@ def run(cfg: dict, run_id: str | None = None, config_path: str | None = None) ->
     return results
 
 
+@dataclass
+class _RepeatContext:
+    """One repeat's split plus the held-out identity shared by all its arms.
+
+    The per-rep artifact must record exactly which crops were held out and
+    which source photos they came from (Q04 provenance), so the identity
+    columns are resolved once per repeat and handed to every arm's artifact
+    instead of being recomputed per arm.
+    """
+
+    rep: int
+    seed: int
+    Xtr: np.ndarray
+    ytr: np.ndarray
+    Xte: np.ndarray
+    yte: np.ndarray
+    # the run's class list (all classes present in the embeddings)
+    classes: list[str]
+    y_test: list[str]
+    test_ids: list[str]
+    test_groups: list[str]
+
+
+@dataclass
+class _ArmResult:
+    """One arm's outcome inside one repeat: what was selected and how it scored.
+
+    Bundled so the repeat loop only has to accumulate rows and hand the
+    result to the artifact writer, and so both stages can be exercised in
+    isolation (L-01).
+    """
+
+    label: str
+    selected: list[int]
+    selection_info: dict
+    selection_seconds: float
+    metrics: dict
+    rows: list[dict] = field(default_factory=list)
+
+
+def _select_and_classify_rep(ctx: _RepeatContext, arm: str, cfg: dict) -> _ArmResult:
+    """Select features for one arm of one repeat and classify the held-out split.
+
+    The Z_full ceiling selects every PCA component and reports zero selection
+    time; every other arm runs its selector and is timed. Classification then
+    runs on exactly the selected columns, so all arms of a repeat are scored
+    on the same held-out rows and only the feature subset differs.
+    """
+    t0 = time.perf_counter()
+    k = cfg["selection"]["k"]
+    n_comp = cfg["features"]["pca_components"]
+    label = arm_label(arm, n_comp, k)
+    if arm == "Z_full":  # no-selection ceiling: all PCA components
+        sel = list(range(ctx.Xtr.shape[1]))  # all PCA components (Z_full ceiling)
+        sel_info = {"no_selection": True}
+        sel_s = 0.0
+    else:
+        sel, sel_info = select_features(arm, ctx.Xtr, ctx.ytr, k, ctx.seed, cfg["qubo"])
+        sel_s = time.perf_counter() - t0
+
+    metrics = run_all_classifiers(
+        ctx.Xtr[:, sel], ctx.ytr, ctx.Xte[:, sel], ctx.yte, cfg, rep_offset=ctx.rep
+    )
+    rows = []
+    for clf, m in metrics.items():
+        rows.append(
+            {
+                "repeat": ctx.rep,
+                "seed": ctx.seed,
+                "arm": label,
+                "arm_key": arm,
+                "classifier": clf,
+                "selected": ",".join(map(str, sel)),
+                "selection_seconds": sel_s,
+                **{kk: vv for kk, vv in m.items() if kk != "predictions"},
+            }
+        )
+    log.info(
+        "rep %d %s: qsvm=%s rbf=%.3f (%.1fs)",
+        ctx.rep,
+        arm,
+        f"{metrics['qsvm']['accuracy']:.3f}" if "qsvm" in metrics else "n/a",
+        metrics["rbf_svm"]["accuracy"],
+        time.perf_counter() - t0,
+    )
+    return _ArmResult(
+        label=label,
+        selected=sel,
+        selection_info=sel_info,
+        selection_seconds=sel_s,
+        metrics=metrics,
+        rows=rows,
+    )
+
+
+def _persist_rep(
+    run_dir: Path, stamp: str, arm: str, result: _ArmResult, ctx: _RepeatContext
+) -> None:
+    """Write the per-rep artifact for one arm.
+
+    Persists per-run details incl. held-out labels + predictions so downstream
+    analyses (confusion, PSI) consume without retraining. test_ids/test_groups
+    are the exact held-out crop identity, aligned 1:1 with y_test and each
+    classifier's predictions (Q04 provenance); consumers must never re-derive
+    the split from the current config.
+    """
+    _write_json_atomic(
+        run_dir / f"rep{ctx.rep}_{arm}.json",
+        {
+            "schema_version": REP_SCHEMA_VERSION,
+            "run_id": stamp,
+            "rep": ctx.rep,
+            "arm": arm,
+            "arm_label": result.label,
+            "seed": ctx.seed,
+            "selected": result.selected,
+            "selection_seconds": result.selection_seconds,
+            "classes": ctx.classes,
+            "y_test": ctx.y_test,
+            "test_ids": ctx.test_ids,
+            "test_groups": ctx.test_groups,
+            "metrics": result.metrics,
+            "mi_table": result.selection_info.get("I"),
+            "selection_info": {
+                kk: vv
+                for kk, vv in result.selection_info.items()
+                if kk
+                in (
+                    "alpha",
+                    "alpha_trace",
+                    "nudged_to_k",
+                    "no_selection",
+                    "k_selected",
+                    "n_features_candidate",
+                )
+            },
+        },
+    )
+
+
+def _finalize_run(cfg: dict, run_dir: Path, stamp: str, rows: list[dict]) -> pd.DataFrame:
+    """Write the run-level artifacts and return the assembled results frame.
+
+    Writes results_all.csv, the summary table, config_used.json and the
+    paired-significance tables. The summary and significance tables go to
+    ``results/tables/`` as well, because they are the paper's tables rather
+    than per-run artifacts.
+    """
+    results = pd.DataFrame(rows)
+    results.to_csv(run_dir / "results_all.csv", index=False)
+
+    summary = (
+        results.groupby(["arm", "classifier"])[["accuracy", "macro_f1"]]
+        .agg(["mean", "std"])
+        .round(4)
+    )
+    summary.to_csv(ROOT / "results" / "tables" / f"summary_{stamp}.csv")
+    with open(run_dir / "config_used.json", "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2, default=str)
+
+    # paired significance tests: every arm vs every arm, per classifier,
+    # on per-repeat accuracy. Wilcoxon signed-rank (exact via normal approx
+    # at n>=25) and paired t are each Holm-corrected as separate families.
+    sig_rows = paired_significance(results)
+    if sig_rows:
+        pd.DataFrame(sig_rows).to_csv(run_dir / "significance.csv", index=False)
+        pd.DataFrame(sig_rows).to_csv(
+            ROOT / "results" / "tables" / f"significance_{stamp}.csv", index=False
+        )
+        log.info("significance: %d comparisons written", len(sig_rows))
+    return results
+
+
 def _run_body(cfg: dict, run_dir: Path, stamp: str, manifest: dict) -> pd.DataFrame:
     t_start = time.perf_counter()
     # OPEN-5 leak-free protocol: raw embeddings cached once (backbone is
@@ -286,9 +466,9 @@ def _run_body(cfg: dict, run_dir: Path, stamp: str, manifest: dict) -> pd.DataFr
     # the run's own artifacts rather than asserted by a code comment (Q25).
     n_overlap_events = 0
 
-    k = cfg["selection"]["k"]
     rows = []
     n_reps_done = 0
+    classes = sorted({str(v) for v in y})
 
     for rep in range(cfg["experiment"]["n_repeats"]):
         seed = cfg["seed"] + rep
@@ -321,76 +501,22 @@ def _run_body(cfg: dict, run_dir: Path, stamp: str, manifest: dict) -> pd.DataFr
                 ev_pct,
                 {c: round(float((yte == c).mean()), 3) for c in sorted(set(yte))},
             )
+        ctx = _RepeatContext(
+            rep=rep,
+            seed=seed,
+            Xtr=Xtr,
+            ytr=ytr,
+            Xte=Xte,
+            yte=yte,
+            classes=classes,
+            y_test=[str(v) for v in yte],
+            test_ids=[str(p) for p in raw["crop_path"].values[idx_te]],
+            test_groups=[str(g) for g in groups[idx_te]],
+        )
         for arm in cfg["experiment"]["arms"]:
-            t0 = time.perf_counter()
-            label = arm_label(arm, n_comp, k)
-            if arm == "Z_full":  # no-selection ceiling: all PCA components
-                sel = list(range(Xtr.shape[1]))  # all PCA components (Z_full ceiling)
-                sel_info = {"no_selection": True}
-                sel_s = 0.0
-            else:
-                sel, sel_info = select_features(arm, Xtr, ytr, k, seed, cfg["qubo"])
-                sel_s = time.perf_counter() - t0
-
-            metrics = run_all_classifiers(Xtr[:, sel], ytr, Xte[:, sel], yte, cfg, rep_offset=rep)
-            for clf, m in metrics.items():
-                rows.append(
-                    {
-                        "repeat": rep,
-                        "seed": seed,
-                        "arm": label,
-                        "arm_key": arm,
-                        "classifier": clf,
-                        "selected": ",".join(map(str, sel)),
-                        "selection_seconds": sel_s,
-                        **{kk: vv for kk, vv in m.items() if kk != "predictions"},
-                    }
-                )
-            log.info(
-                "rep %d %s: qsvm=%s rbf=%.3f (%.1fs)",
-                rep,
-                arm,
-                f"{metrics['qsvm']['accuracy']:.3f}" if "qsvm" in metrics else "n/a",
-                metrics["rbf_svm"]["accuracy"],
-                time.perf_counter() - t0,
-            )
-            # persist per-run details incl. held-out labels + predictions so
-            # downstream analyses (confusion, PSI) consume without retraining.
-            # test_ids/test_groups are the exact held-out crop identity, aligned
-            # 1:1 with y_test and each classifier's predictions (Q04 provenance);
-            # consumers must never re-derive the split from the current config.
-            _write_json_atomic(
-                run_dir / f"rep{rep}_{arm}.json",
-                {
-                    "schema_version": REP_SCHEMA_VERSION,
-                    "run_id": stamp,
-                    "rep": rep,
-                    "arm": arm,
-                    "arm_label": label,
-                    "seed": seed,
-                    "selected": sel,
-                    "selection_seconds": sel_s,
-                    "classes": sorted({str(v) for v in y}),
-                    "y_test": [str(v) for v in yte],
-                    "test_ids": [str(p) for p in raw["crop_path"].values[idx_te]],
-                    "test_groups": [str(g) for g in groups[idx_te]],
-                    "metrics": metrics,
-                    "mi_table": sel_info.get("I"),
-                    "selection_info": {
-                        kk: vv
-                        for kk, vv in sel_info.items()
-                        if kk
-                        in (
-                            "alpha",
-                            "alpha_trace",
-                            "nudged_to_k",
-                            "no_selection",
-                            "k_selected",
-                            "n_features_candidate",
-                        )
-                    },
-                },
-            )
+            result = _select_and_classify_rep(ctx, arm, cfg)
+            rows.extend(result.rows)
+            _persist_rep(run_dir, stamp, arm, result, ctx)
 
         # Enhancement 3: incremental write (crash recovery) + early stopping
         # n_reps_done is set here (after the arm loop) so a crash mid-arm-loop
@@ -404,28 +530,7 @@ def _run_body(cfg: dict, run_dir: Path, stamp: str, manifest: dict) -> pd.DataFr
                 log.info("EARLY STOP after rep %d: %s", rep, stop_reason)
                 break
 
-    results = pd.DataFrame(rows)
-    results.to_csv(run_dir / "results_all.csv", index=False)
-
-    summary = (
-        results.groupby(["arm", "classifier"])[["accuracy", "macro_f1"]]
-        .agg(["mean", "std"])
-        .round(4)
-    )
-    summary.to_csv(ROOT / "results" / "tables" / f"summary_{stamp}.csv")
-    with open(run_dir / "config_used.json", "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2, default=str)
-
-    # paired significance tests: every arm vs every arm, per classifier,
-    # on per-repeat accuracy. Wilcoxon signed-rank (exact via normal approx
-    # at n>=25) and paired t are each Holm-corrected as separate families.
-    sig_rows = paired_significance(results)
-    if sig_rows:
-        pd.DataFrame(sig_rows).to_csv(run_dir / "significance.csv", index=False)
-        pd.DataFrame(sig_rows).to_csv(
-            ROOT / "results" / "tables" / f"significance_{stamp}.csv", index=False
-        )
-        log.info("significance: %d comparisons written", len(sig_rows))
+    results = _finalize_run(cfg, run_dir, stamp, rows)
 
     # Enhancement 10: opt-in MLflow tracking (file store; degrades gracefully)
     if cfg.get("experiment", {}).get("track_mlflow", False):
@@ -456,8 +561,7 @@ def should_stop_early(
     last = accs[-window:]
     if max(last) - min(last) <= tol:
         return (
-            f"QUBO-8 rbf accuracy flat within {tol:.3f} for {window} "
-            f"repeats (last {last[-1]:.4f})"
+            f"QUBO-8 rbf accuracy flat within {tol:.3f} for {window} repeats (last {last[-1]:.4f})"
         )
     return None
 

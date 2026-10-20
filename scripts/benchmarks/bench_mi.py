@@ -50,6 +50,6 @@ for a, b in combinations(range(n_feat), 2):
     R_v[a, b] = R_v[b, a] = m
 t_vec = time.perf_counter() - t0
 
-print(f"loop={t_loop:.3f}s vec={t_vec:.3f}s speedup={t_loop/t_vec:.1f}x")
+print(f"loop={t_loop:.3f}s vec={t_vec:.3f}s speedup={t_loop / t_vec:.1f}x")
 print("I exact:", np.array_equal(I_ref, I_v))
 print("R exact:", np.array_equal(R_ref, R_v))

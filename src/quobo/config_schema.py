@@ -5,12 +5,28 @@ Wraps the YAML loading in config.py: load_config() still returns a plain dict
 raises with a readable error on any malformed key, out-of-range value,
 unknown arm name or unknown nested key (Q17) — catching config typos at load
 time instead of at rep 12. Cross-field constraints (Q19) are enforced too.
+
+``PaperConfig`` additionally freezes the published run's configuration
+(catalog Part 2): the paper's numbers are only the paper's numbers if the
+config that produced them is the config that is shipped, so the frozen
+values are enforced rather than merely described in the YAML comment. A
+config that drifted from the paper is reported field by field, so the
+answer to "is this still the paper's run?" is a list of drifted fields
+rather than a single "invalid config".
 """
 
 import os
+from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 
 class _StrictModel(BaseModel):
@@ -181,3 +197,187 @@ class QuoboConfig(_StrictModel):
                 "from repeat 10 onward, so a shorter run would ignore the flag"
             )
         return self
+
+
+# The published run's frozen values. The paper's numbers are only the paper's
+# numbers if the config that produced them is the config that is shipped, so
+# the values are enforced by the schema below rather than merely described in
+# a YAML comment (catalog Part 2: "the published configuration is enforced,
+# not just described"). The class list and the arm list are ordered: the
+# published tables index them by position, so a reordering is a different run.
+PAPER_CLASSES: tuple[str, ...] = ("bottle", "can", "cigarette", "carton", "cup", "lid")
+PAPER_ARMS: tuple[str, ...] = ("A_random", "B_pca", "C_mi", "D_qubo", "E_lasso", "F_mrmr", "Z_full")
+
+
+class PaperDataConfig(DataConfig):
+    """``data`` section frozen to the published run's values.
+
+    Every leaf defaults to the paper's value, so a config that only states a
+    deviation still validates and the deviation is what gets reported.
+    """
+
+    classes: list[str] = Field(
+        default_factory=lambda: list(PAPER_CLASSES),
+        min_length=2,
+        description="Class names for classification",
+    )
+    min_images_per_class: Literal[40] = 40
+    # The paper ran on the shipped TACO crops. An override points the run at
+    # a different dataset, which is a different experiment, not a different
+    # spelling of the paper's.
+    crops_dir_override: Literal[None] = None
+
+    @field_validator("classes")
+    @classmethod
+    def validate_paper_classes(cls, v: list[str]) -> list[str]:
+        if tuple(v) != PAPER_CLASSES:
+            raise ValueError(f"paper classes are {list(PAPER_CLASSES)}, got {v}")
+        return v
+
+
+class PaperFeaturesConfig(FeaturesConfig):
+    """``features`` section frozen to the published run's values."""
+
+    backbone: Literal["MobileNetV2"] = "MobileNetV2"
+    pca_components: Literal[50] = 50
+
+
+class PaperSelectionConfig(SelectionConfig):
+    """``selection`` section frozen to the published run's values."""
+
+    k: Literal[8] = 8
+
+
+class PaperQUBOConfig(QUBOConfig):
+    """``qubo`` section frozen to the published run's values.
+
+    ``parallel`` is deliberately left free: the threaded coarse alpha scan
+    selects the same features (verified on the real data), so it changes how
+    long the run takes, not what it measures.
+    """
+
+    mi_bins: Literal[16] = 16
+    sa_sweeps: Literal[20000] = 20000
+    sa_repeats: Literal[10] = 10
+
+
+class PaperQSVMConfig(QSVMConfig):
+    """``qsvm`` section frozen to the published run's values."""
+
+    reps: Literal[1] = 1
+    entanglement: Literal["linear"] = "linear"
+    max_train_samples: Literal[400] = 400
+    test_fraction: Literal[0.25] = 0.25
+    tune_rbf: Literal[True] = True
+    max_qsvm_features: Literal[20] = 20
+
+
+class PaperExperimentConfig(ExperimentConfig):
+    """``experiment`` section frozen to the published run's values.
+
+    ``track_mlflow`` is deliberately left free: it only decides whether the
+    run is logged, not what is measured. ``early_stop`` is frozen because it
+    changes how many repeats the published statistics are computed from.
+    """
+
+    # Deliberately wider than the parent's Literal list: a pydantic literal
+    # error would say "input should be 'A_random', 'B_pca', ...", which reads
+    # like a menu rather than like "this is not the arm set the paper ran".
+    # The validator below rejects anything that is not the published list,
+    # in the published order, and says which one it got.
+    arms: list[str] = Field(
+        default_factory=lambda: list(PAPER_ARMS),
+        min_length=1,
+        description="Selection arms to run",
+    )
+    n_repeats: Literal[25] = 25
+    early_stop: Literal[False] = False
+
+    @field_validator("arms")
+    @classmethod
+    def validate_paper_arms(cls, v: list[str]) -> list[str]:
+        if tuple(v) != PAPER_ARMS:
+            raise ValueError(f"paper arms are {list(PAPER_ARMS)}, got {v}")
+        return v
+
+
+class PaperConfig(QuoboConfig):
+    """The published run's configuration, frozen.
+
+    Same shape as :class:`QuoboConfig` — so a paper config is a valid
+    experiment config and the unchanged pipeline can run it — but every value
+    that shapes the published numbers is pinned. A config that drifted from
+    the paper is rejected with the offending field named, because "invalid
+    config" does not tell a reader which of a hundred numbers stopped being
+    the paper's.
+
+    The six sections are required: a config missing a section is not the
+    paper's config, and letting a section default to the paper's values
+    would report that omission as a pass.
+    """
+
+    seed: Literal[42] = 42
+    data: PaperDataConfig
+    features: PaperFeaturesConfig
+    selection: PaperSelectionConfig
+    qubo: PaperQUBOConfig
+    qsvm: PaperQSVMConfig
+    experiment: PaperExperimentConfig
+
+
+def _describe_error(err: dict) -> str:
+    """Render one pydantic error as ``field: expected X, got Y``."""
+    loc = ".".join(str(part) for part in err.get("loc", ())) or "config"
+    got = err.get("input")
+    msg = str(err.get("msg", "invalid"))
+    if err.get("type") == "literal_error":
+        # pydantic states the accepted value in the message ("Input should be
+        # 8", "Input should be 'MobileNetV2'") but not the value it got, and
+        # its ctx["expected"] is the *string* form, so the message is the
+        # only place the expected value is rendered in its own type.
+        expected = msg.removeprefix("Input should be ")
+        return f"{loc}: expected {expected}, got {got!r}"
+    if msg.startswith("Value error, "):
+        msg = msg[len("Value error, ") :]
+    return f"{loc}: {msg}"
+
+
+def paper_drift(cfg: dict) -> list[str]:
+    """Return the frozen paper fields that ``cfg`` does not match.
+
+    An empty list means the config is the paper's config. Each entry names
+    the field path and both values, e.g. ``"selection.k: expected 8, got
+    10"``, so a drifted config says what moved instead of only that it is
+    invalid.
+    """
+    try:
+        PaperConfig.model_validate(cfg)
+    except ValidationError as e:
+        return [_describe_error(err) for err in e.errors()]
+    return []
+
+
+def validate_paper_config(cfg: dict) -> PaperConfig:
+    """Enforce the frozen paper configuration.
+
+    Raises ValueError listing every drifted field, so the reason a config is
+    not the paper's config is legible without reading a pydantic traceback.
+    """
+    drifts = paper_drift(cfg)
+    if drifts:
+        raise ValueError("paper config drift: " + "; ".join(drifts))
+    return PaperConfig.model_validate(cfg)
+
+
+def load_paper_config(path: str | Path = "configs/experiment_6class.yaml") -> PaperConfig:
+    """Load a YAML config and check it against the frozen paper configuration.
+
+    Mirrors config.load_config/validate_config, but for the published run:
+    the returned model is a PaperConfig, so the caller cannot accidentally
+    treat a drifted config as the paper's. The import is local because
+    config.py imports this module — a module-level back-import would be
+    circular.
+    """
+    from .config import load_config
+
+    return validate_paper_config(load_config(path))

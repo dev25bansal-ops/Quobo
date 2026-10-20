@@ -5,23 +5,67 @@ global-average-pooled -> 1280-d), then PCA compresses to N candidate features.
 Output: data/features/features.csv with columns f0..f{N-1}, label, crop_path.
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import logging
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 from zipfile import BadZipFile
 
 import numpy as np
 import pandas as pd
-import tensorflow as tf
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
 from .config import ROOT
 
+if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
+    import tensorflow as tf
+
 log = logging.getLogger(__name__)
+
+# TensorFlow is imported LAZILY. It is needed only by :func:`load_model` and
+# :func:`extract_embeddings`, but importing it costs ~80-190s on this
+# machine (it is by far the heaviest dependency in the project). Importing it
+# at module scope meant every consumer of this module paid that cost -- the
+# PCA/scaler path, the fingerprint helpers, the test suite, and every CLI
+# that merely imports a symbol from here -- even when no image was ever
+# loaded.
+#
+# The lazy hook keeps the public surface unchanged: ``features.tf`` still
+# resolves to the real TensorFlow module, so existing code and tests that
+# monkeypatch ``F.tf.keras.utils`` keep working. The first attribute access
+# performs the import and caches it in the module globals.
+_tf = None
+
+
+def _load_tf():
+    """Import TensorFlow on demand and cache it.
+
+    Single entry point for both the module-attribute hook (``features.tf``)
+    and in-function use, so both resolve to the *same* module object -- which
+    is what makes monkeypatching ``F.tf.keras.utils`` affect the code that
+    actually calls ``tf.keras.utils.load_img``.
+    """
+    global _tf
+    if _tf is None:
+        import tensorflow
+
+        _tf = tensorflow
+        globals()["tf"] = _tf
+    return _tf
+
+
+def __getattr__(name: str):
+    """Module-level lazy attribute hook (PEP 562) for ``tf``."""
+    if name == "tf":
+        return _load_tf()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 # Bound memory, not coverage: hash every byte, including large-image tails.
 FINGERPRINT_CHUNK_BYTES = 1 << 20
@@ -91,7 +135,9 @@ def _features_config_identity(cfg: dict) -> dict:
     }
 
 
-def load_model() -> tf.keras.Model:
+def load_model() -> "tf.keras.Model":
+    # resolved lazily, not at module scope: see the note on the lazy ``tf`` hook
+    tf = _load_tf()
     base = tf.keras.applications.MobileNetV2(
         input_shape=(224, 224, 3), include_top=False, weights="imagenet", pooling="avg"
     )
@@ -168,6 +214,7 @@ def extract_embeddings(
                 log.warning("checkpoint unreadable or legacy format; restarting extraction")
 
     bs = 64
+    tf = _load_tf()  # resolved once, so monkeypatching F.tf.keras.utils applies
     for i in tqdm(range(0, n, bs), desc="embeddings"):
         chunk = paths[i : i + bs]
         chunk_idx = np.arange(i, min(i + bs, n))  # clip to n for the last partial batch
