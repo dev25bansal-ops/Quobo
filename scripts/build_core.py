@@ -311,12 +311,18 @@ def run(profile: str = "full", python: str = "") -> int:
         # 4. docs (optional)
         docs_ok = True
         if profile == "docs":
-            code, _ = _run(
-                [python, "-m", "sphinx", "-b", "html", "docs", "docs/_build/html"], cwd=ROOT
+            # -W turns warnings into errors: without it an autodoc import
+            # failure (a broken API reference) is only a warning and the build
+            # still reports PASS with an empty reference page.
+            code, docs_out = _run(
+                [python, "-m", "sphinx", "-W", "-b", "html", "docs", "docs/_build/html"],
+                cwd=ROOT,
             )
             docs_ok = code == 0
             print(f"[docs] {'PASS' if docs_ok else 'FAIL'}")
             if not docs_ok:
+                for line in (docs_out or "").splitlines()[-8:]:
+                    print(f"  {line}")
                 pytest_ok = False
 
         # 4b. pip-audit (advisory, full/docs only)

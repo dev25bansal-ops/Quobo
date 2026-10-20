@@ -43,3 +43,36 @@ jobs:
 
       - name: Pytest (unit + integration)
         run: pytest tests/ -v --tb=short -q
+
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install (docs deps)
+        # The docs build imports the package for autodoc; docs/conf.py adds src/
+        # to sys.path, so the editable install is not required for the import
+        # itself — but installing it keeps the build faithful to a user's setup.
+        run: |
+          pip install -e ".[dev]" --no-deps
+          pip install "sphinx>=7" "myst-parser>=4" "pydantic>=2,<3" \
+                      "scikit-learn>=1.5,<1.11" "numpy>=2.3,<2.6" pandas scipy \
+                      pyyaml
+
+      - name: Build the API reference
+        # -W turns warnings into errors: an autodoc import failure would
+        # otherwise only warn, and the build would pass with an empty API
+        # reference page.
+        run: sphinx -W -b html docs docs/_build/html
+
+      - name: Upload the built docs
+        uses: actions/upload-artifact@v4
+        with:
+          name: quobo-docs
+          path: docs/_build/html
