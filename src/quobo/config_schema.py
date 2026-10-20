@@ -105,11 +105,10 @@ class ExperimentConfig(_StrictModel):
         default=False,
         description="Log the run to MLflow (local file store; needs the mlflow extra)",
     )
-    baselines: list[str] | None = Field(
-        default=None,
-        description="Documented baseline list from the shipped config (informational; "
-        "the RBF-SVM baseline always runs)",
-    )
+    # The former 'baselines' key was removed: it was never read by any code
+    # (the RBF-SVM baseline is mandatory per the Huang 2021 caveat and is
+    # gated by qsvm.tune_rbf), so setting it had no effect at all. A config
+    # key that does nothing is worse than no key.
 
     @field_validator("arms")
     @classmethod

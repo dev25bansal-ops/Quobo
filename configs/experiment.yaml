@@ -43,6 +43,5 @@ experiment:
   # p-value is 0.0625, so a 5-repeat run could never report significance.
   n_repeats: 6                 # repeated splits, identical budget across arms A-D
   arms: [A_random, B_pca, C_mi, D_qubo]
-  baselines: [rbf_svm]         # mandatory per Huang 2021 caveat
   early_stop: false            # statistical early stopping (Enhancement 3)
   track_mlflow: false          # MLflow tracking (Enhancement 10; needs the track extra)

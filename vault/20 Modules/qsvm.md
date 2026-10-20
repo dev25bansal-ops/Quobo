@@ -16,7 +16,9 @@ Quantum + classical classifiers over the selected k features.
   (respects `qsvm.max_qsvm_features` ≤30 guard from [[config]]).
 - `evaluate` — accuracy + per-repeat metrics for one classifier.
 - `run_all_classifiers` — QSVC + RBF-SVM (+ linear, + tuned grid when
-  `tune_rbf`); baselines configurable via `experiment.baselines`.
+  `tune_rbf`). The RBF-SVM baseline is mandatory (Huang 2021 caveat) and
+  always runs; the former `experiment.baselines` key was removed as a
+  silent no-op.
 
 ## Notes
 
