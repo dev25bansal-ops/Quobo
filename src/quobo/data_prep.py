@@ -35,6 +35,45 @@ MAX_IMAGE_PIXELS = 40_000_000
 # Retries per image for transient failures (timeout, connection reset, 5xx).
 # 404/410 are permanent and are not retried.
 IMG_RETRIES = 3
+# Redirect hops to follow manually, each validated against the host allowlist.
+MAX_REDIRECTS = 5
+
+
+def _get_validated(session, url: str, timeout, stream: bool = True):
+    """GET a URL, following redirects MANUALLY and validating every hop.
+
+    requests follows redirects by default, and the allowlist only covered the
+    first URL — so an allowlisted host that 302s to 169.254.169.254 (or any
+    internal service) was fetched unvalidated. Here each Location target is
+    re-validated against the same allowlist before it is requested.
+    """
+    from urllib.parse import urljoin
+
+    current = url
+    for _ in range(MAX_REDIRECTS + 1):
+        _validate_image_url(current, "image")
+        try:
+            response = session.get(current, timeout=timeout, stream=stream, allow_redirects=False)
+        except TypeError:
+            # A minimal session implementation (or a test double) may not accept
+            # allow_redirects; fall back to the plain call. Such a session does
+            # not follow redirects itself, so the manual loop still applies.
+            response = session.get(current, timeout=timeout, stream=stream)
+        if getattr(response, "is_redirect", False) or getattr(
+            response, "is_permanent_redirect", False
+        ):
+            location = (getattr(response, "headers", {}) or {}).get("Location", "")
+            close = getattr(response, "close", None)
+            if callable(close):
+                close()
+            if not location:
+                raise ValueError(f"redirect without Location from {current!r}")
+            current = urljoin(current, location)
+            continue
+        return response
+    raise ValueError(f"too many redirects (> {MAX_REDIRECTS}) starting at {url!r}")
+
+
 # Allowed image hosts. TACO serves images from Flickr's CDN (*.staticflickr.com)
 # and the OLM S3 bucket (olm-s3.s3.eu-west-1.amazonaws.com) — verified against
 # the shipped annotations.json. The annotations file is treated as untrusted
@@ -50,6 +89,16 @@ def _validate_image_url(url: str, context: str = "image") -> str:
     Returns the URL unchanged when acceptable; raises ValueError otherwise.
     Subdomains of the allowed hosts are accepted (flickr uses farm1..farm66).
 
+    Two bypasses this closes:
+    - userinfo: "https://evil.com\\@staticflickr.com/x.jpg" — urlparse reads
+      hostname as staticflickr.com (so a naive allowlist passes) while the
+      HTTP client connects to evil.com, because the backslash is
+      percent-encoded into the path and the '@' then splits userinfo from
+      host. Verified against requests' own URL preparation.
+    - redirects: the allowlist is applied to the first hop only, so an
+      allowlisted host that 302s to 169.254.169.254 would be followed
+      unvalidated. Use allow_redirects=False and validate each Location.
+
     A string with no scheme is left alone: it cannot address a network host,
     so it carries no SSRF risk — the request layer rejects it on its own."""
     from urllib.parse import urlparse
@@ -62,6 +111,15 @@ def _validate_image_url(url: str, context: str = "image") -> str:
         return url
     if parsed.scheme != "https":
         raise ValueError(f"{context} URL must use https, got {parsed.scheme!r}")
+    if parsed.username or parsed.password or "@" in url:
+        # Userinfo is never legitimate for these CDN URLs and is the classic
+        # way to smuggle a different host past a hostname check.
+        raise ValueError(f"{context} URL must not contain userinfo")
+    if "\\" in url:
+        # A backslash is a path separator to some clients but not to
+        # urlparse, which is exactly the parser-differential the userinfo
+        # trick above relies on. Refuse it outright.
+        raise ValueError(f"{context} URL must not contain a backslash")
     host = (parsed.hostname or "").lower()
     if not any(host == allowed or host.endswith("." + allowed) for allowed in ALLOWED_IMAGE_HOSTS):
         raise ValueError(f"{context} URL host {host!r} is not allowlisted")
@@ -82,7 +140,13 @@ def download_file(url: str, dest: Path, desc: str = "") -> Path:
     if dest.exists():
         log.info("already downloaded: %s", dest.name)
         return dest
-    resp = requests.get(url, stream=True, timeout=60, allow_redirects=True)
+    # This URL is a hardcoded, trusted source (TACO_URL), not dataset-supplied,
+    # so the image host allowlist does not apply. Redirects are still bounded
+    # so a compromised or hijacked upstream cannot bounce the fetcher through
+    # an unbounded chain.
+    with requests.Session() as session:
+        session.max_redirects = MAX_REDIRECTS
+        resp = session.get(url, stream=True, timeout=60, allow_redirects=True)
     resp.raise_for_status()
     total = int(resp.headers.get("content-length", 0))
     written = 0
@@ -169,7 +233,7 @@ def download_taco_images(ann_path: Path, images_dir: Path) -> None:
         last_err = ""
         for attempt in range(IMG_RETRIES):
             try:
-                with session.get(url, timeout=30, stream=True) as r:
+                with _get_validated(session, url, timeout=30) as r:
                     r.raise_for_status()
                     received = 0
                     payload = io.BytesIO()

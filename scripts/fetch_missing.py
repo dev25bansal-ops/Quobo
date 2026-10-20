@@ -19,7 +19,11 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from src.quobo.data_prep import _validate_dataset_paths, _validate_image_url  # noqa: E402
+from src.quobo.data_prep import (  # noqa: E402
+    _get_validated,
+    _validate_dataset_paths,
+    _validate_image_url,
+)
 
 ANN = ROOT / "data" / "raw" / "annotations.json"
 IMAGES = ROOT / "data" / "raw" / "images"
@@ -60,7 +64,7 @@ def fetch_one(im: dict, dest: Path) -> tuple[str, str]:
             tmp_path = None
             try:
                 session = requests.Session()
-                with session.get(url, timeout=(10, 120), stream=True) as r:
+                with _get_validated(session, url, timeout=(10, 120)) as r:
                     r.raise_for_status()
                     received = 0
                     payload = io.BytesIO()
