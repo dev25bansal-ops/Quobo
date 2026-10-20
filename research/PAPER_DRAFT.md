@@ -19,10 +19,11 @@ ceiling. All arms feed the same classifier suite: a quantum-kernel SVM (QSVC, ZZ
 8 qubits) and classical SVMs including a tuned RBF-SVM. Under a fully leak-free protocol
 (group-aware splits with scaler+PCA refit on train per split) and 25 repeats, Holm-corrected
 Wilcoxon tests show every principled selection arm — QUBO, mRMR, LASSO, PCA, MI —
-statistically indistinguishable on RBF-SVM accuracy (~40.9–41.4%) and all significantly
-beating random selection (p<0.001); QUBO-8 reaches 40.9±3.1%, matching the best classical
-selection while additionally providing a globally-optimal-combinatorial formulation that
-runs unchanged on quantum annealers. QSVC runs at ~37% — 2–4 points below tuned RBF at
+statistically indistinguishable on RBF-SVM accuracy (~40.8–41.4%) and all significantly
+beating random selection (p<0.001); QUBO-8 reaches 40.8±3.2%, matching the best classical
+selection while additionally providing a combinatorial formulation whose exactly-k
+selection is obtained by an α search over a single QUBO, so the same instance runs
+unchanged on quantum annealers. QSVC runs at ~37% — 2–4 points below tuned RBF at
 identical budgets — consistent with the quantum-kernel parity literature. We additionally introduce a **Pollution Severity Index (PSI)** — a hazard-
 weighted dominant-pollutant index on the 0–500 air-index scale, computed from classifier
 predictions — and demonstrate the full CV→PSI→GIS analytics chain. To our knowledge this is the
@@ -112,17 +113,30 @@ on train only. Classical baselines: linear SVM, RBF-SVM (defaults), tuned RBF-SV
 ## 4. Results
 
 **Table 1 — Accuracy (mean±std over 25 group-aware repeats, leak-free protocol: scaler+PCA
-refit on train per split; Holm-corrected Wilcoxon vs QUBO-8):**
+refit on train per split; Holm-corrected Wilcoxon vs QUBO-8). Source run:
+`experiments/20260920_161627` (`results/tables/summary_20260920_161627.csv`,
+`significance_20260920_161627.csv`):**
 
 | Arm | QSVC | RBF-SVM | RBF (tuned) | vs QUBO (RBF, p) |
 |---|---|---|---|---|
-| Full-50 | — (50 qubits infeasible) | 48.3±2.1 | 49.1±2.6 | <0.001 (better) |
-| LASSO-8 | 38.5±2.4 | 41.4±2.7 | 41.9±2.4 | 1.000 (tie) |
+| Full-50 | — (k > max_qsvm_features) | 48.3±2.1 | 49.1±2.6 | <0.001 (worse) |
+| LASSO-8 | 38.5±2.4 | 41.3±2.7 | 41.9±2.4 | 1.000 (tie) |
 | mRMR-8 | 38.0±3.5 | 41.4±3.0 | 41.6±3.0 | 1.000 (tie) |
-| **QUBO-8** | **37.2±3.5** | **40.9±3.1** | **41.0±3.2** | — |
+| **QUBO-8** | **37.3±3.1** | **40.8±3.2** | **40.9±3.3** | — |
 | PCA-8 | 37.7±2.9 | 40.1±2.5 | 40.6±2.8 | 1.000 (tie) |
-| MI-8 | 37.0±3.0 | 39.5±3.6 | 39.3±3.0 | 0.541 (tie) |
-| Random-8 | 31.3±2.8 | 32.2±3.0 | 32.9±3.5 | <0.001 (worse) |
+| MI-8 | 37.0±3.0 | 39.5±3.6 | 39.3±3.0 | 0.619 (tie) |
+| Random-8 | 31.3±2.8 | 32.1±3.0 | 32.9±3.5 | <0.001 (better) |
+
+*Provenance note.* These are the numbers of run `20260920_161627`, which is the run
+the rest of this document cites. (An earlier revision of this table quoted
+`20260910_153929`, whose arms differ only in QUBO-8: 40.9±3.1 vs 40.8±3.2.)
+
+*Pending re-run.* The QUBO solver's objective was corrected after this run: the
+redundancy term had been counted twice (see §5, "Methodological transparency"),
+which changes
+the reported alpha but not the selected feature set. The table above therefore
+predates that correction and must be regenerated from a fresh 25-repeat run
+before submission.
 
 *QSVC note.* The Full-50 QSVC cell is "—" because the statevector kernel is
 gated at `qsvm.max_qsvm_features` (default 20) — a configurable memory guard
@@ -133,7 +147,8 @@ the ceiling itself is configurable in `configs/*.yaml`.
 
 **Findings.** (1) Selection quality dominates: every principled arm beats random by ~8–9
 points on every classifier. (2) Under the strict leak-free protocol, QUBO-8, mRMR-8, LASSO-8,
-PCA-8, and MI-8 are statistically indistinguishable (all Holm p>0.5 vs QUBO) — **QUBO matches
+and PCA-8 are statistically indistinguishable from QUBO-8 (Holm-corrected Wilcoxon p=1.000
+against it) and MI-8 is likewise indistinguishable (p=0.619) — **QUBO matches
 the best classical selection at this scale**, the honest parity result the annealing
 literature consistently reports; the transient v1 QUBO-vs-MI edge did not survive the
 per-split PCA refit, which we report transparently (both tables in results/tables/).
@@ -163,6 +178,15 @@ ward conditions (see Limitations).
   splitting; the leak-free protocol refits per split from cached raw embeddings and is the
   one reported here. Notably, the v1 QUBO-vs-MI edge did not survive the refit — we publish
   both tables as evidence of the protocol's materiality.
+- **Objective correction (post-run).** The QUBO solver emitted both orientations of each
+  feature pair, and `dimod` sums them, so the redundancy term entered the solved objective
+  twice: the code optimized `2(1−α)·R_ij` while the formulation documented here and in
+  Mücke et al. (2022) is `(1−α)·R_ij`. The solver now emits only the diagonal and upper
+  triangle. The **selected feature set is unchanged** (verified on the full 1,836-row
+  feature matrix: [1,5,6,7,8,10,16,33] before and after), because the α search absorbs
+  the constant factor; only the reported α differs (0.953125 → 0.90625), and α is a solver
+  internal rather than a reported result. Table 1 nevertheless predates the correction and
+  is to be regenerated from a fresh 25-repeat run before submission.
 - **Simulated annealing.** EXP D solves classically; the identical 50-variable QUBO runs on
   a D-Wave QPU given a Leap token (S3, pending). SA≈QPU equivalence is the literature
   consensus, so we expect unchanged results.
