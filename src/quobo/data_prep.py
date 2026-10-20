@@ -362,6 +362,7 @@ def build_crops(
 
     per_class = Counter()
     skipped = Counter()
+    too_small_by_class: dict[str, int] = {}
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # group annotations by image so each image decodes once (worst image has
@@ -396,7 +397,17 @@ def build_crops(
             x1 = min(W, int(x + w * (1 + m)))  # clamp to the ACTUAL image dims
             y1 = min(H, int(y + h * (1 + m)))
             if x1 - x0 < 8 or y1 - y0 < 8:
+                # Small objects are common for cigarettes (thin butts in wide
+                # Flickr shots), so this filter is NOT class-neutral: of 667
+                # TACO cigarette annotations, 372 (55.8%) fall under 8 px and
+                # are dropped, leaving 295. The retained class priors therefore
+                # differ from the annotated ones — which matters because the
+                # hazard-weighted PSI headline leans on the cigarette class
+                # (weight 3.0). Record the drop per class so the bias is
+                # visible in the stats instead of being silently baked into
+                # the dataset.
                 skipped["too_small"] += 1
+                too_small_by_class[coarse] = too_small_by_class.get(coarse, 0) + 1
                 continue
             cls_dir = out_dir / coarse
             cls_dir.mkdir(exist_ok=True)
@@ -439,6 +450,16 @@ def build_crops(
         "skipped": dict(skipped),
         "kept_classes": {
             c: per_class[c] for c in cfg_classes if per_class[c] >= min_images_per_class
+        },
+        # Per-class crop retention. The 8 px minimum-crop filter is NOT
+        # class-neutral (cigarettes lose ~56% of their annotations because a
+        # butt is thin in a wide shot), so the retained class priors differ
+        # from the annotated ones. Publishing the ratio per class makes that
+        # bias explicit rather than something a reader has to infer.
+        "too_small_by_class": dict(too_small_by_class),
+        "retained_ratio_by_class": {
+            c: round(per_class[c] / (per_class[c] + too_small_by_class.get(c, 0)), 4)
+            for c in sorted(set(per_class) | set(too_small_by_class))
         },
     }
     return stats

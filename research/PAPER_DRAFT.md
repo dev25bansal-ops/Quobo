@@ -200,6 +200,23 @@ ward conditions (see Limitations).
   consensus, so we expect unchanged results.
 - **Dataset scale.** 1,836 crops is small; the 25-repeat significance protocol is designed
   for exactly this regime. Cross-dataset replication (TrashBox, TrashNet) is queued.
+- **The crop-size filter is not class-neutral (affects the PSI headline).** Crops
+  smaller than 8 px are dropped, and cigarette butts are thin in wide Flickr
+  shots: **372 of 667 cigarette annotations (55.8%) are dropped, retaining only
+  44.2%**, against ≥86% for every other class (bottle 99.3%, carton 99.6%,
+  can 93.7%, lid 86.2%, cup 100%). The retained class priors therefore differ
+  from the annotated ones. Because cigarette carries the highest hazard weight
+  (3.0) and drives the hazard-weighted PSI, **this biases the reported PSI
+  downward** — the headline index is computed on a cigarette population missing
+  more than half its members. The per-class retention ratios are now recorded
+  in `data/processed/data_prep_stats.json`
+  (`too_small_by_class`, `retained_ratio_by_class`) so the bias is explicit
+  rather than implicit. Two consequences for the reader: (i) the PSI values
+  here are conservative with respect to litter prevalence, and (ii) the
+  classifier's per-class recall (cigarette 73%) is measured on a filtered
+  population, so it is not directly comparable to recall on unfiltered
+  annotations. Lowering the threshold is not the fix — a 1–2 px crop carries no
+  signal for a 224 px MobileNetV2 input.
 - **Zone mapping is a demo** (TACO has no GPS); the folder-mode ingestion for real ward
   deployments is implemented and untested on real data.
 
