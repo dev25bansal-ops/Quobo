@@ -18,6 +18,8 @@ import numpy as np
 from sklearn.feature_selection import mutual_info_classif
 from sklearn.metrics import accuracy_score, f1_score
 from sklearn.preprocessing import MinMaxScaler
+
+from .qsvm import ANGLE_RANGE
 from sklearn.svm import SVC
 
 SCHEMA_VERSION = 1
@@ -216,7 +218,7 @@ def prepare_split(
         Xtr, split.y_train[train_idx], random_state=seed, n_neighbors=min(3, max(1, len(Xtr) - 1))
     )
     selected = np.argsort(-scores, kind="stable")[:budget]
-    scaler = MinMaxScaler(feature_range=(0.05, 1.52)).fit(Xtr[:, selected])
+    scaler = MinMaxScaler(feature_range=ANGLE_RANGE).fit(Xtr[:, selected])
     prepared = {
         "X_train": scaler.transform(Xtr[:, selected]),
         "y_train": split.y_train[train_idx],
@@ -229,7 +231,8 @@ def prepare_split(
         "selection": "mutual_info_classif_train_only",
         "selected": selected.tolist(),
         "mi_scores": scores.tolist(),
-        "angle_range": [0.05, 1.52],
+        "angle_range": list(ANGLE_RANGE),
+        "angle_range_clipped": False,
         "scaler_data_min": scaler.data_min_.tolist(),
         "scaler_data_max": scaler.data_max_.tolist(),
         "scaler_clip": False,
