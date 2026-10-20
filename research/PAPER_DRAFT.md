@@ -119,13 +119,19 @@ refit on train per split; Holm-corrected Wilcoxon vs QUBO-8). Source run:
 
 | Arm | QSVC | RBF-SVM | RBF (tuned) | vs QUBO (RBF, p) |
 |---|---|---|---|---|
-| Full-50 | — (k > max_qsvm_features) | 48.3±2.1 | 49.1±2.6 | <0.001 (worse) |
+| Full-50 | — (k > max_qsvm_features) | 48.3±2.1 | 49.1±2.6 | <0.001 (better) |
 | LASSO-8 | 38.5±2.4 | 41.3±2.7 | 41.9±2.4 | 1.000 (tie) |
 | mRMR-8 | 38.0±3.5 | 41.4±3.0 | 41.6±3.0 | 1.000 (tie) |
 | **QUBO-8** | **37.3±3.1** | **40.8±3.2** | **40.9±3.3** | — |
 | PCA-8 | 37.7±2.9 | 40.1±2.5 | 40.6±2.8 | 1.000 (tie) |
 | MI-8 | 37.0±3.0 | 39.5±3.6 | 39.3±3.0 | 0.619 (tie) |
-| Random-8 | 31.3±2.8 | 32.1±3.0 | 32.9±3.5 | <0.001 (better) |
+| Random-8 | 31.3±2.8 | 32.1±3.0 | 32.9±3.5 | <0.001 (worse) |
+
+*The "vs QUBO" column is read from the perspective of the OTHER arm: Full-50
+beats QUBO-8 by 7.5 points (p<0.001) and QUBO-8 beats Random-8 by 8.7 points
+(p<0.001); the remaining arms are indistinguishable from QUBO-8 (Holm p≥0.619).
+Source: `results/tables/significance_20260920_161627.csv`, where
+`mean_diff = mean(acc(arm_a) - acc(arm_b))`.*
 
 *Provenance note.* These are the numbers of run `20260920_161627`, which is the run
 the rest of this document cites. (An earlier revision of this table quoted
@@ -133,10 +139,9 @@ the rest of this document cites. (An earlier revision of this table quoted
 
 *Pending re-run.* The QUBO solver's objective was corrected after this run: the
 redundancy term had been counted twice (see §5, "Methodological transparency"),
-which changes
-the reported alpha but not the selected feature set. The table above therefore
-predates that correction and must be regenerated from a fresh 25-repeat run
-before submission.
+which changes the reported alpha but not the selected feature set. The table
+above therefore predates that correction and must be regenerated from a fresh
+25-repeat run before submission.
 
 *QSVC note.* The Full-50 QSVC cell is "—" because the statevector kernel is
 gated at `qsvm.max_qsvm_features` (default 20) — a configurable memory guard
@@ -182,11 +187,14 @@ ward conditions (see Limitations).
   feature pair, and `dimod` sums them, so the redundancy term entered the solved objective
   twice: the code optimized `2(1−α)·R_ij` while the formulation documented here and in
   Mücke et al. (2022) is `(1−α)·R_ij`. The solver now emits only the diagonal and upper
-  triangle. The **selected feature set is unchanged** (verified on the full 1,836-row
-  feature matrix: [1,5,6,7,8,10,16,33] before and after), because the α search absorbs
-  the constant factor; only the reported α differs (0.953125 → 0.90625), and α is a solver
-  internal rather than a reported result. Table 1 nevertheless predates the correction and
-  is to be regenerated from a fresh 25-repeat run before submission.
+  triangle. On the leak-free protocol the **selected feature set is unchanged** — recomputed
+  before and after the fix on the rep-0 split (1,377 train rows × 50 PCA components) it is
+  `[1,4,20,25,43,44,45,47]` with α=0.921875 either way, because the α search absorbs the
+  constant factor. The reported α of the frozen run (0.9625, with selection
+  `[0,1,5,6,7,8,10,21]`) was produced under the doubled objective and will change in the
+  regenerated run; α is a solver internal rather than a reported result. Table 1
+  nevertheless predates the correction and is to be regenerated from a fresh 25-repeat run
+  before submission.
 - **Simulated annealing.** EXP D solves classically; the identical 50-variable QUBO runs on
   a D-Wave QPU given a Leap token (S3, pending). SA≈QPU equivalence is the literature
   consensus, so we expect unchanged results.
