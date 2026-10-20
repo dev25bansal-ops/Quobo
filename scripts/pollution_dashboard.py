@@ -183,7 +183,21 @@ def find_complete_run(run_id: str | None = None) -> tuple[Path, dict]:
             "no completed experiment run with a run manifest found; refusing to "
             "substitute ground-truth labels"
         )
-    _, run_dir, manifest = complete[-1]
+
+    # Pick the run to serve by REPETITIONS first, then by finish time.
+    # Directory-name order is not a reliable proxy for either: a diagnostic
+    # run with a non-timestamp name (e.g. "run_leak1") sorts after every
+    # timestamp, and by wall-clock a test artifact created last night is
+    # "newer" than the paper's run. The run that actually produced the
+    # reported numbers is the one with the most repeats; ties break on the
+    # manifest's own finish time.
+    def _rank(entry):
+        manifest = entry[2]
+        reps = manifest.get("reps_completed") or 0
+        stamp = str(manifest.get("finished_at") or manifest.get("started_at") or "")
+        return (int(reps), stamp)
+
+    _, run_dir, manifest = max(complete, key=_rank)
     return run_dir, manifest
 
 

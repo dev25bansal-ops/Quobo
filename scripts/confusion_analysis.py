@@ -51,13 +51,24 @@ def latest_run_dir() -> Path:
             continue
         with_manifest.append(d)
         try:
-            status = json.loads(manifest_path.read_text(encoding="utf-8")).get("status")
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            status = manifest.get("status")
         except json.JSONDecodeError:
-            status = None
+            manifest, status = {}, None
         if status == "complete":
-            complete.append(d)
+            complete.append((d, manifest))
     if complete:
-        return complete[-1]
+        # Prefer the run with the MOST REPEATS, then the latest finish time.
+        # Directory-name order is not a reliable proxy: a diagnostic run with a
+        # non-timestamp name sorts after every real run and would otherwise
+        # shadow the run that produced the reported numbers.
+        return max(
+            complete,
+            key=lambda e: (
+                int(e[1].get("reps_completed") or 0),
+                str(e[1].get("finished_at") or e[1].get("started_at") or ""),
+            ),
+        )[0]
     if with_manifest:
         log.warning(
             "no completed run found; using %s (status may be incomplete — "
