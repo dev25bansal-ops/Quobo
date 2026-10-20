@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import GroupShuffleSplit
 
-from .config import ROOT, load_config, validate_config
+from .config import ROOT, ensure_dirs, load_config, validate_config
 from .features import fit_pca_on_train, run_raw_embeddings
 from .qsvm import run_all_classifiers
 from .selection import select_features
@@ -201,7 +201,26 @@ def run(cfg: dict, run_id: str | None = None, config_path: str | None = None) ->
             "in this run will be non-significant by construction",
             n_reps,
         )
+    # Create the output directories up front. results/ is gitignored, so on a
+    # fresh clone (or after a cleanup) results/tables/ does not exist — and the
+    # summary/significance CSVs are written at the very END of the run, after
+    # all 25 repeats. Without this, a run completes every repeat, writes its
+    # per-rep artifacts, then dies with "Cannot save file into a non-existent
+    # directory", losing the summary and marking the manifest failed.
+    ensure_dirs(cfg)
     stamp = run_id or datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    # run_id is user-supplied (CLI arg or API param) and becomes a directory
+    # name: reject traversal so it cannot write outside experiments/.
+    if run_id is not None:
+        from pathlib import PurePosixPath, PureWindowsPath
+
+        if (
+            PurePosixPath(run_id).is_absolute()
+            or PureWindowsPath(run_id).is_absolute()
+            or ".." in PurePosixPath(run_id).parts
+            or ".." in PureWindowsPath(run_id).parts
+        ):
+            raise ValueError(f"run_id must be a relative name without '..': {run_id!r}")
     run_dir = ROOT / "experiments" / stamp
     run_dir.mkdir(parents=True, exist_ok=True)
     manifest = {

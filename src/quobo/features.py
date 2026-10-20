@@ -275,7 +275,17 @@ def run_raw_embeddings(cfg: dict) -> pd.DataFrame:
                     return cached
             else:
                 log.warning("raw cache identity mismatch — recomputing embeddings")
-        except (FileNotFoundError, KeyError, json.JSONDecodeError, ValueError, OSError):
+        except (
+            FileNotFoundError,
+            KeyError,
+            json.JSONDecodeError,
+            ValueError,
+            OSError,
+            BadZipFile,
+        ):
+            # BadZipFile is what np.load raises on a TRUNCATED npz, and it is
+            # neither a ValueError nor an OSError — without it here a corrupt
+            # cache would crash the pipeline instead of triggering a recompute.
             log.warning("raw cache meta missing or unreadable — recomputing embeddings")
     # The extractor validates checkpoint identity; a cache miss alone must not
     # discard resumable work. Keep it until the final cache and metadata exist.

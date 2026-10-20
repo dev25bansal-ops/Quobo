@@ -356,9 +356,15 @@ def build_crops(
 
     # drop classes below the minimum count
     removed = {}
+    out_root = out_dir.resolve()
     for cls in list(cfg_classes):
         if per_class[cls] < min_images_per_class:
             d = out_dir / cls
+            # A configured class name becomes a directory that is rmtree'd —
+            # a class named ".." would resolve to the PARENT of the crops root
+            # and delete it. Refuse anything that is not a plain child name.
+            if d.resolve() != out_root and not d.resolve().is_relative_to(out_root):
+                raise ValueError(f"unsafe class name for directory removal: {cls!r}")
             if d.exists():
                 shutil.rmtree(d)
             removed[cls] = per_class[cls]

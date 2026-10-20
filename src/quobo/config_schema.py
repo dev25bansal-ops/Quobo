@@ -7,6 +7,7 @@ unknown arm name or unknown nested key (Q17) — catching config typos at load
 time instead of at rep 12. Cross-field constraints (Q19) are enforced too.
 """
 
+import os
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -36,6 +37,24 @@ class DataConfig(_StrictModel):
     def validate_classes_unique(cls, v: list[str]) -> list[str]:
         if len(v) != len(set(v)):
             raise ValueError("classes must be unique")
+        # A class name becomes a DIRECTORY under the crops root, and a class
+        # below min_images_per_class has that directory removed. A name with a
+        # path separator or a dot-segment would therefore point outside the
+        # crops root (a class named ".." resolves to its parent). Names must
+        # also be portable filenames: a space, colon or other separator is
+        # invalid in a Windows path and would fail at rmtree time.
+        for name in v:
+            if (
+                not name
+                or name in (".", "..")
+                or "/" in name
+                or "\\" in name
+                or os.sep in name
+                or (os.altsep and os.altsep in name)
+                or any(c in name for c in '<>:"|?*')
+                or name != name.strip()
+            ):
+                raise ValueError(f"class names must be plain directory names, got {name!r}")
         return v
 
 
