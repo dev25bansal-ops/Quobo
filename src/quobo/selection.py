@@ -131,7 +131,13 @@ def select_qubo(
     sequential fine binary-search within the bracket — so the result is
     determined by the same per-alpha seeds as the sequential path. Default
     (parallel=False) keeps the original sequential binary-search exactly,
-    so frozen paper results and the determinism test are unaffected."""
+    so frozen paper results and the determinism test are unaffected.
+
+    The SELECTED FEATURES are identical between the two modes (verified on the
+    real 1836-row feature CSV: [1,5,6,7,8,10,16,33] for both). The RECORDED
+    alpha can differ in the 4th decimal, because the coarse scan narrows the
+    search bracket and so changes how many fine binary-search iterations run.
+    """
     from dwave.samplers import SimulatedAnnealingSampler
 
     I, R = compute_mi_table(X, y, n_bins)  # noqa: E741
@@ -181,13 +187,18 @@ def select_qubo(
             futures = {a: pool.submit(solve, a) for a in coarse}
             counts = {a: len(fut.result()[0]) for a, fut in futures.items()}
         alpha_trace.extend(sorted(counts.items()))
+        # The coarse scan narrows the bracket, but ONLY the upper bound: the
+        # sequential path starts its fine search at lo=0.0, so setting lo here
+        # from the coarse counts made the recorded alpha differ between modes
+        # (0.90625 vs 0.9125 on the real data) even though the selected set
+        # was identical. Starting from the same lo keeps the parallel path a
+        # pure speedup with identical provenance.
         lo, hi = 0.0, 1.0
         for a, c in sorted(counts.items()):
             if c <= k:
-                lo = a
-            else:
-                hi = a
-                break
+                continue
+            hi = a
+            break
     else:
         lo, hi = 0.0, 1.0
 

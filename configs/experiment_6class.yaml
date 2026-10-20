@@ -26,7 +26,10 @@ qubo:
   mi_bins: 16
   sa_sweeps: 20000
   sa_repeats: 10
-  parallel: true              # L-04: threaded coarse alpha scan (~3x; result-identical)
+  parallel: true              # L-04: threaded coarse alpha scan (~3x); same selected
+                              # features as sequential (verified on the real data);
+                              # the recorded alpha can differ in the 4th decimal
+                              # because the coarse scan narrows the search bracket
 
 qsvm:
   reps: 1
